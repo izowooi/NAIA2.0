@@ -95,7 +95,7 @@ class ModernMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NAIA v2.0.0 Dev")
-        self.setGeometry(100, 100, 1900, 1000)
+        self.set_initial_window_size()
         self.params_expanded = False
         
         # 어두운 테마 적용
@@ -2022,6 +2022,32 @@ class ModernMainWindow(QMainWindow):
                 
         except Exception as e:
             print(f"❌ 버튼 상태 업데이트 오류: {e}")
+
+    def set_initial_window_size(self):
+        """
+        사용자의 가용 화면 해상도를 기준으로 창의 초기 크기를 설정하고
+        화면 중앙에 배치합니다.
+        """
+        try:
+            # 사용자의 주 모니터에서 작업 표시줄을 제외한 가용 영역의 정보를 가져옵니다.
+            screen_geometry = QApplication.primaryScreen().availableGeometry()
+            
+            # 화면 너비와 높이의 85%를 초기 창 크기로 설정합니다.
+            initial_width = int(screen_geometry.width() * 0.85)
+            initial_height = int(screen_geometry.height() * 0.85)
+            
+            # 계산된 크기로 창의 크기를 조절합니다.
+            self.resize(initial_width, initial_height)
+            
+            # 창을 화면의 중앙으로 이동시킵니다.
+            self.move(screen_geometry.center() - self.rect().center())
+            
+            print(f"🖥️ 동적 창 크기 설정 완료: {initial_width}x{initial_height}")
+
+        except Exception as e:
+            print(f"⚠️ 동적 창 크기 설정 실패: {e}. 기본 크기(1280x720)로 설정합니다.")
+            # 오류 발생 시 안전을 위한 기본값 설정
+            self.resize(1280, 720)
 
     def save_all_current_settings(self):
         """현재 모든 설정을 저장하는 메서드"""
