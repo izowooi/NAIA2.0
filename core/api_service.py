@@ -353,24 +353,8 @@ class APIService:
                 raise Exception("ComfyUI 서버에 연결할 수 없습니다.")
             
             # 4. 워크플로우 생성
-            workflow = self.workflow_manager.create_workflow_from_params(params)
-            
-            # 5. 워크플로우 유효성 검사
-            if not self.workflow_manager.validate_workflow(workflow):
-                raise Exception("워크플로우 유효성 검사 실패")
-            
-            # 디버그 정보 출력
-            model_sampling = workflow.get('8', {}).get('inputs', {})
-            sampling_mode = model_sampling.get('sampling', 'eps')
-            zsnr = model_sampling.get('zsnr', False)
-            
-            print(f"📤 ComfyUI 워크플로우 생성 완료:")
-            print(f"   - 해상도: {workflow['5']['inputs']['width']}x{workflow['5']['inputs']['height']}")
-            print(f"   - 모델: {workflow['1']['inputs']['ckpt_name']}")
-            print(f"   - 샘플러: {workflow['4']['inputs']['sampler_name']}")
-            print(f"   - 스텝: {workflow['4']['inputs']['steps']}, CFG: {workflow['4']['inputs']['cfg']}")
-            print(f"   - 샘플링 모드: {sampling_mode}, ZSNR: {zsnr}")
-            
+            workflow = params['workflow']
+
             # 6. 진행률 콜백 설정
             def progress_callback(current: int, total: int):
                 # 메인 윈도우에 진행률 업데이트 (필요시 구현)

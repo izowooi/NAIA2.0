@@ -97,7 +97,7 @@ class ModernMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NAIA v2.0.0 Dev")
-        self.setGeometry(100, 100, 1900, 1000)
+        self.set_initial_window_size()
         self.params_expanded = False
         
         # 어두운 테마 적용
@@ -412,12 +412,33 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.addWidget(self.result_label1)
         search_result_layout.addWidget(self.result_label2)
         search_result_layout.addStretch(1)
+
+        self.save_settings_btn = QPushButton("💾 설정 저장")
+        self.save_settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #5CBF60;
+            }
+            QPushButton:pressed {
+                background-color: #3E8E41;
+            }
+        """)
+        self.save_settings_btn.setToolTip("현재 모든 설정을 저장합니다")
         
         self.restore_btn = QPushButton("복원")
         self.restore_btn.setStyleSheet(DARK_STYLES['secondary_button'])
         self.deep_search_btn = QPushButton("심층검색")
         self.deep_search_btn.setStyleSheet(DARK_STYLES['secondary_button'])
         
+        search_result_layout.addWidget(self.save_settings_btn)
         search_result_layout.addWidget(self.restore_btn)
         search_result_layout.addWidget(self.deep_search_btn)
         top_layout.addWidget(search_result_frame)
@@ -1265,6 +1286,7 @@ class ModernMainWindow(QMainWindow):
 
     def connect_signals(self):
         self.search_btn.clicked.connect(self.trigger_search)
+        self.save_settings_btn.clicked.connect(self.save_all_current_settings)
         self.restore_btn.clicked.connect(self.restore_search_results)
         self.deep_search_btn.clicked.connect(self.open_depth_search_tab)
         self.random_prompt_btn.clicked.connect(self.trigger_random_prompt)
@@ -2029,8 +2051,6 @@ class ModernMainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ 버튼 상태 업데이트 오류: {e}")
 
-<<<<<<< Updated upstream
-=======
     def set_initial_window_size(self):
         """
         사용자의 가용 화면 해상도를 기준으로 창의 초기 크기를 설정하고
@@ -2153,8 +2173,8 @@ class ModernMainWindow(QMainWindow):
             with Image.open(file_path) as img:
                 # ComfyUI는 'prompt'와 'workflow' 키에 JSON 문자열로 저장합니다.
                 metadata = img.info
-                if 'prompt' not in metadata:
-                    QMessageBox.warning(self, "오류", "선택한 이미지에서 ComfyUI 워크플로우 정보를 찾을 수 없습니다.")
+                if 'prompt' not in metadata or 'workflow' not in metadata:
+                    QMessageBox.warning(self, "오류", "선택한 이미지에서 ComfyUI 워크플로우 정보를 찾을 수 없습니다. 만약 NAIA에서 생성한 이미지라면 COMFYUI에서 먼저 이미지를 생성하여 저장한 뒤 NAIA로 불러와주세요.")
                     return
 
                 # 워크플로우 분석 및 검증
@@ -2183,7 +2203,6 @@ class ModernMainWindow(QMainWindow):
             self.workflow_custom_btn.setEnabled(False)
             self.status_bar.showMessage("🔄 기본 워크플로우로 전환되었습니다.", 3000)
 
->>>>>>> Stashed changes
 
 if __name__ == "__main__":
     # 기존 환경 설정들...

@@ -209,19 +209,26 @@ class ComfyUIWorkflowManager:
     def validate_and_map_workflow(self, workflow: Dict[str, Any]) -> tuple[bool, Dict[str, Any]]:
         """
         워크플로우의 필수 노드들을 class_type으로 찾아 ID를 매핑합니다.
-        [수정] ComfyUI의 표준 workflow.json (nodes가 list인 형식)을 처리하도록 개선되었습니다.
-        
-        Returns:
-            (bool, dict): (유효성 여부, {기능: 노드_ID} 맵 또는 에러 메시지)
+        [수정] UI 형식('nodes' 리스트)과 API 형식(노드 딕셔너리)을 모두 처리하도록 개선되었습니다.
         """
-        # [핵심 수정] 함수 시작 시, 'nodes' 리스트가 유효한지 먼저 확인합니다.
-        if 'nodes' not in workflow or not isinstance(workflow['nodes'], list):
-            return False, {"error": "JSON에 'nodes' 리스트가 없거나 형식이 잘못되었습니다."}
+        nodes_by_id = {}
+        links_data = None
+        is_ui_format = False
 
-        # [핵심 수정] 빠른 조회를 위해 노드 리스트를 ID를 키로 하는 딕셔너리로 변환합니다.
-        # ID는 문자열로 통일하여 일관성을 유지합니다.
-        nodes_by_id = {str(node['id']): node for node in workflow['nodes']}
-        
+        # --- [핵심] 1. 워크플로우 형식 감지 및 데이터 정규화 ---
+        if 'nodes' in workflow and isinstance(workflow.get('nodes'), list):
+            # A. UI 형식일 경우: nodes 리스트를 ID를 키로 하는 딕셔너리로 변환
+            is_ui_format = True
+            nodes_by_id = {str(node['id']): node for node in workflow['nodes']}
+            links_data = workflow.get('links', [])
+        else:
+            # B. API/기본 형식일 경우: workflow 자체가 노드 딕셔너리임
+            is_ui_format = False
+            nodes_by_id = workflow
+
+        if not nodes_by_id:
+            return False, {"error": "분석할 노드 데이터를 찾을 수 없습니다."}
+
         node_map = {}
         required_nodes = {
             "CheckpointLoaderSimple": "checkpoint_loader",
@@ -230,59 +237,55 @@ class ComfyUIWorkflowManager:
             "EmptyLatentImage": "latent_image",
             "VAEDecode": "vae_decode",
             "SaveImage": "save_image",
-            "PreviewImage": "preview_image" # PreviewImage도 처리하도록 추가
+            "PreviewImage": "preview_image",
+            "ModelSamplingDiscrete" : "model_sampler"
         }
         
         found_nodes = {key: [] for key in required_nodes.keys()}
 
-        # [수정] 변환된 딕셔너리를 올바르게 순회합니다.
+        # --- 2. 노드 순회 및 분류 ---
         for node_id, node_data in nodes_by_id.items():
-            # [수정] 'class_type' 대신 'type' 키를 사용합니다.
-            class_type = node_data.get("type")
+            # [수정] UI 형식('type')과 API 형식('class_type')의 키 이름을 모두 지원
+            class_type = node_data.get("type") or node_data.get("class_type")
             if class_type in required_nodes:
                 found_nodes[class_type].append(node_id)
         
-        # 필수 노드 존재 여부 확인
+        # --- 3. 필수 노드 존재 여부 확인 (기존 로직과 유사) ---
         if not found_nodes["CheckpointLoaderSimple"]: return False, {"error": "CheckpointLoaderSimple 노드를 찾을 수 없습니다."}
         if len(found_nodes["CLIPTextEncode"]) < 2: return False, {"error": "CLIPTextEncode 노드가 2개 미만입니다 (Prompt/Negative)."}
         if not found_nodes["KSampler"]: return False, {"error": "KSampler 노드를 찾을 수 없습니다."}
-        
-        # 노드 맵 생성
+        if not found_nodes["ModelSamplingDiscrete"]: return False, {"error": "ModelSamplingDiscrete 노드를 찾을 수 없습니다."}
         node_map["checkpoint_loader"] = found_nodes["CheckpointLoaderSimple"][0]
         
-        # KSampler에 연결된 Positive/Negative 프롬프트 노드 찾기
+        # --- 4. KSampler에 연결된 프롬프트 노드 찾기 (형식에 따라 분기) ---
         ksampler_node_id = found_nodes["KSampler"][0]
-        # [수정] nodes_by_id 딕셔너리를 사용하여 KSampler 노드 정보를 올바르게 조회합니다.
         ksampler_inputs = nodes_by_id[ksampler_node_id]["inputs"]
         
-        positive_link_id = None
-        negative_link_id = None
-        for input_slot in ksampler_inputs:
-            if input_slot.get("name") == "positive":
-                positive_link_id = input_slot.get("link")
-            elif input_slot.get("name") == "negative":
-                negative_link_id = input_slot.get("link")
-
-        # [핵심 수정] 링크 ID를 키로 사용하는 딕셔너리를 만들어 링크 정보를 빠르게 찾습니다.
-        # 링크 형식: [link_id, source_node_id, source_slot_index, target_node_id, ...]
-        links_by_id = {link[0]: link for link in workflow.get('links', [])}
-
-        if positive_link_id and positive_link_id in links_by_id:
-            # 링크 정보에서 소스 노드 ID(두 번째 요소)를 추출합니다.
-            source_node_id = links_by_id[positive_link_id][1]
-            node_map["positive_prompt"] = str(source_node_id)
-
-        if negative_link_id and negative_link_id in links_by_id:
-            # 링크 정보에서 소스 노드 ID(두 번째 요소)를 추출합니다.
-            source_node_id = links_by_id[negative_link_id][1]
-            node_map["negative_prompt"] = str(source_node_id)
+        if is_ui_format:
+            # UI 형식의 링크 처리
+            positive_link_id = next((slot.get("link") for slot in ksampler_inputs if slot.get("name") == "positive"), None)
+            negative_link_id = next((slot.get("link") for slot in ksampler_inputs if slot.get("name") == "negative"), None)
             
+            links_by_id = {link[0]: link for link in links_data}
+            if positive_link_id in links_by_id:
+                node_map["positive_prompt"] = str(links_by_id[positive_link_id][1])
+            if negative_link_id in links_by_id:
+                node_map["negative_prompt"] = str(links_by_id[negative_link_id][1])
+        else:
+            # API/기본 형식의 링크 처리 (더 직접적)
+            if isinstance(ksampler_inputs.get("positive"), list):
+                node_map["positive_prompt"] = ksampler_inputs["positive"][0]
+            if isinstance(ksampler_inputs.get("negative"), list):
+                node_map["negative_prompt"] = ksampler_inputs["negative"][0]
+
         if "positive_prompt" not in node_map or "negative_prompt" not in node_map:
-             return False, {"error": "KSampler에 연결된 Prompt/Negative 노드를 특정할 수 없습니다."}
+            return False, {"error": "KSampler에 연결된 Prompt/Negative 노드를 특정할 수 없습니다."}
 
         node_map["sampler"] = ksampler_node_id
         if found_nodes["EmptyLatentImage"]:
             node_map["latent_image"] = found_nodes["EmptyLatentImage"][0]
+
+        node_map["model_sampler"] = found_nodes["ModelSamplingDiscrete"][0]
         
         return True, node_map
 
@@ -364,6 +367,18 @@ class ComfyUIWorkflowManager:
             if "latent_image" in node_map:
                  workflow[node_map["latent_image"]]["inputs"]["width"] = params['width']
                  workflow[node_map["latent_image"]]["inputs"]["height"] = params['height']
+
+            # 5. ModelSamplingDiscrete 설정 추가 ---
+            if "model_sampler" in node_map:
+                model_sampler_node = workflow[node_map["model_sampler"]]["inputs"]
+                
+                # sampling_mode가 params에 있으면 그 값을 사용, 없으면 기존 값 유지
+                if 'sampling_mode' in params:
+                    model_sampler_node["sampling"] = params['sampling_mode']
+                
+                # zsnr이 params에 있으면 그 값을 사용, 없으면 기존 값 유지
+                if 'zsnr' in params:
+                    model_sampler_node["zsnr"] = params['zsnr']
             
             return workflow
             

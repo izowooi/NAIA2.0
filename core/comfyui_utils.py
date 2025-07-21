@@ -249,7 +249,7 @@ class WorkflowValidationDialog(QDialog):
         required_text = ""
         for status, class_name in sorted(self.result['required']):
             color = DARK_COLORS['success'] if status == "PASS" else DARK_COLORS['error']
-            required_text += f'<span style="color: {color};">{status}</span> | {class_name}\n'
+            required_text += f'<span style="color: {color};">{status}</span> | {class_name}<br>'
         self.required_text_edit.setHtml(required_text)
 
         # 커스텀 노드 목록 표시
