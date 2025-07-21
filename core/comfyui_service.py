@@ -201,40 +201,56 @@ class ComfyUIService:
             if ws_connected:
                 self.disconnect_websocket()
     
-    def get_generation_result(self, prompt_id: str) -> Optional[Dict[str, Any]]:
-        """생성 결과 조회"""
+    def get_generation_result(self, prompt_id: str) -> List[Dict[str, Any]]:
+        """
+        [수정] 생성 결과를 조회하고, ID가 가장 높은(가장 마지막으로 간주)
+        이미지 노드의 결과만 찾아 리스트로 반환합니다.
+        """
+        image_results = []
         try:
             response = requests.get(f"{self.server_url}/history/{prompt_id}", timeout=10)
             
-            if response.status_code == 200:
-                history = response.json()
-                
-                if prompt_id in history:
-                    result = history[prompt_id]
-                    outputs = result.get('outputs', {})
-                    
-                    # SaveImage 노드 결과 찾기 (노드 ID 7번)
-                    if '7' in outputs:
-                        save_image_output = outputs['7']
-                        images = save_image_output.get('images', [])
-                        
-                        if images:
-                            image_info = images[0]  # 첫 번째 이미지
-                            return {
-                                'filename': image_info.get('filename'),
-                                'subfolder': image_info.get('subfolder', ''),
-                                'type': image_info.get('type', 'output')
-                            }
-                
-                print("❌ 생성 결과에서 이미지 정보를 찾을 수 없음")
-                return None
-            else:
+            if response.status_code != 200:
                 print(f"❌ 생성 결과 조회 실패: {response.status_code}")
-                return None
-                
+                return []
+
+            history = response.json()
+            if prompt_id not in history:
+                return []
+
+            result = history[prompt_id]
+            outputs = result.get('outputs', {})
+            
+            # 1. 이미지를 실제로 생성한 노드들만 필터링합니다.
+            image_producing_nodes = {}
+            for node_id, node_output in outputs.items():
+                if 'images' in node_output and isinstance(node_output['images'], list):
+                    # node_id를 정수로 변환하여 저장 (비교를 위해)
+                    image_producing_nodes[int(node_id)] = node_output['images']
+            
+            if not image_producing_nodes:
+                print("❌ 생성 결과에서 이미지 정보를 찾을 수 없음")
+                return []
+
+            # 2. 찾은 노드들 중에서 ID가 가장 높은 노드를 선택합니다.
+            last_node_id = max(image_producing_nodes.keys())
+            
+            # 3. 해당 노드의 이미지 정보만 최종 결과 리스트에 추가합니다.
+            last_node_images = image_producing_nodes[last_node_id]
+            for image_info in last_node_images:
+                 image_results.append({
+                     'filename': image_info.get('filename'),
+                     'subfolder': image_info.get('subfolder', ''),
+                     'type': image_info.get('type', 'output'),
+                     'source_node_id': str(last_node_id) # 다시 문자열로 변환하여 반환
+                 })
+
+            print(f"✅ 최종 이미지 노드(ID: {last_node_id})에서 {len(image_results)}개의 결과를 찾았습니다.")
+            return image_results
+
         except Exception as e:
             print(f"❌ 생성 결과 조회 중 예외 발생: {e}")
-            return None
+            return []
     
     def download_image(self, filename: str, subfolder: str = '', image_type: str = 'output') -> Optional[Image.Image]:
         """
@@ -280,20 +296,24 @@ class ComfyUIService:
         if not prompt_id:
             return {'status': 'error', 'message': '워크플로우 큐 등록 실패'}
         
-        # 2. 실행 완료 대기 (개선된 버전)
-        if not self.wait_for_completion(prompt_id, timeout=180):  # 3분 타임아웃
+        # 2. 실행 완료 대기
+        if not self.wait_for_completion(prompt_id, timeout=180):
             return {'status': 'error', 'message': '워크플로우 실행 실패 또는 시간 초과'}
         
-        # 3. 결과 조회
-        result_info = self.get_generation_result(prompt_id)
-        if not result_info:
+        # 3. 결과 조회 (이제 리스트를 반환받음)
+        # [수정] 변수명을 복수형(result_infos)으로 변경하여 리스트임을 명시
+        result_infos = self.get_generation_result(prompt_id)
+        if not result_infos:
             return {'status': 'error', 'message': '생성 결과 조회 실패'}
         
-        # 4. 이미지 다운로드
+        # [핵심 수정] 반환된 리스트에서 첫 번째 결과(딕셔너리)를 선택합니다.
+        first_image_info = result_infos[0]
+        
+        # 4. 이미지 다운로드 (선택된 딕셔너리를 사용)
         download_result = self.download_image(
-            result_info['filename'],
-            result_info['subfolder'],
-            result_info['type']
+            first_image_info['filename'],
+            first_image_info.get('subfolder', ''),
+            first_image_info.get('type', 'output')
         )
         
         if download_result:
@@ -304,7 +324,7 @@ class ComfyUIService:
                 'image': image,
                 'raw_bytes': raw_image_bytes,
                 'prompt_id': prompt_id,
-                'filename': result_info['filename']
+                'filename': first_image_info['filename']
             }
         else:
             return {'status': 'error', 'message': '이미지 다운로드 실패'}

@@ -4,10 +4,12 @@ import os
 import json
 import pandas as pd
 import random
+from PIL import Image
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
-    QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox
+    QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox,
+    QFileDialog, QDialog, QButtonGroup
 )
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
@@ -156,6 +158,7 @@ class ModernMainWindow(QMainWindow):
         print("🔍 AutoCompleteManager 전역 인스턴스 요청 중...")
         # 새로운 getter 패턴 사용
         self.autocomplete_manager = get_autocomplete_manager(app_context=self.app_context)
+        self.workflow_manager = self.app_context.comfyui_workflow_manager
 
     # 자동완성 기능 사용 가능 여부를 확인하는 헬퍼 메서드
     def is_autocomplete_available(self) -> bool:
@@ -401,9 +404,9 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.setContentsMargins(10, 6, 10, 6)
         
         # [수정] 결과 레이블을 self 변수로 저장
-        self.result_label1 = QLabel("검색 프롬프트 행: 0")
+        self.result_label1 = QLabel("Searched: 0")
         self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
-        self.result_label2 = QLabel("남은 프롬프트 행: 0")
+        self.result_label2 = QLabel("Remain: 0")
         self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
         
         search_result_layout.addWidget(self.result_label1)
@@ -419,7 +422,7 @@ class ModernMainWindow(QMainWindow):
                 border-radius: 4px;
                 padding: 6px 12px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 18px;
             }
             QPushButton:hover {
                 background-color: #5CBF60;
@@ -833,25 +836,47 @@ class ModernMainWindow(QMainWindow):
         self.zsnr_checkbox.setToolTip("Zero Signal-to-Noise Ratio 옵션을 사용합니다")
         self.comfyui_option_widget_layout.addWidget(self.zsnr_checkbox)
 
-        # 🔧 향후 확장을 위한 업스케일러 섹션 (비활성화 상태)
-        comfyui_upscaler_label = QLabel("업스케일러 (미구현)")
-        comfyui_upscaler_label.setStyleSheet(DARK_STYLES['label_style'] + "color: #888888;")
-        comfyui_upscaler_label.setEnabled(False)
-        self.comfyui_option_widget_layout.addWidget(comfyui_upscaler_label)
+        # 1. 기존 라벨을 "워크플로우 선택"으로 재사용하고 활성화합니다.
+        comfyui_workflow_label = QLabel("워크플로우 선택:")
+        comfyui_workflow_label.setStyleSheet(DARK_STYLES['label_style'])
+        comfyui_workflow_label.setEnabled(True)
+        self.comfyui_option_widget_layout.addWidget(comfyui_workflow_label)
 
-        self.comfyui_upscaler_section = QWidget()
-        self.comfyui_upscaler_section.setEnabled(False)
-        comfyui_upscaler_layout = QHBoxLayout(self.comfyui_upscaler_section)
-        comfyui_upscaler_layout.setContentsMargins(0, 0, 0, 0)
+        # 2. 기존 QWidget과 QHBoxLayout을 버튼들을 담을 컨테이너로 재사용합니다.
+        self.comfyui_workflow_section = QWidget()
+        self.comfyui_workflow_section.setEnabled(True)
+        comfyui_workflow_layout = QHBoxLayout(self.comfyui_workflow_section)
+        comfyui_workflow_layout.setContentsMargins(0, 0, 0, 0)
+        comfyui_workflow_layout.setSpacing(6)
 
-        comfyui_upscaler_combo = QComboBox()
-        #comfyui_upscaler_combo.addItem("향후 업데이트 예정")
-        comfyui_upscaler_combo.setStyleSheet(DARK_STYLES['compact_lineedit'] + "color: #888888;")
-        comfyui_upscaler_combo.setEnabled(False)
-        #comfyui_upscaler_layout.addWidget(comfyui_upscaler_combo)
-        comfyui_upscaler_layout.addStretch()
+        # 3. 토글 버튼들을 생성합니다. (클래스 멤버 변수로 선언해야 다른 메서드에서 접근 가능)
+        self.workflow_default_btn = QPushButton("기본")
+        self.workflow_default_btn.setCheckable(True)
+        self.workflow_default_btn.setChecked(True)
+        self.workflow_default_btn.setStyleSheet(DARK_STYLES['toggle_button'])
 
-        self.comfyui_option_widget_layout.addWidget(self.comfyui_upscaler_section)
+        self.workflow_custom_btn = QPushButton("커스텀")
+        self.workflow_custom_btn.setCheckable(True)
+        self.workflow_custom_btn.setEnabled(False) # 커스텀 워크플로우 로드 전까지 비활성화
+        self.workflow_custom_btn.setStyleSheet(DARK_STYLES['toggle_button'])
+
+        # 4. QButtonGroup으로 토글 버튼들을 그룹화하여 하나만 선택되도록 합니다.
+        self.workflow_toggle_group = QButtonGroup(self)
+        self.workflow_toggle_group.addButton(self.workflow_default_btn)
+        self.workflow_toggle_group.addButton(self.workflow_custom_btn)
+        self.workflow_toggle_group.setExclusive(True)
+
+        # 5. '불러오기' 버튼을 생성합니다.
+        self.workflow_load_btn = QPushButton("불러오기(이미지)")
+        self.workflow_load_btn.setStyleSheet(DARK_STYLES['secondary_button'])
+
+        # 6. 버튼들을 레이아웃에 추가합니다.
+        comfyui_workflow_layout.addWidget(self.workflow_default_btn, 1)
+        comfyui_workflow_layout.addWidget(self.workflow_custom_btn, 1)
+        comfyui_workflow_layout.addWidget(self.workflow_load_btn, 1)
+        
+        # 7. 버튼 컨테이너 위젯을 최종적으로 부모 레이아웃에 추가합니다.
+        self.comfyui_option_widget_layout.addWidget(self.comfyui_workflow_section)
 
         # 모드별 위젯 그룹 정리 (기존 코드 수정)
         self.naid_option_widgets = [
@@ -1276,6 +1301,9 @@ class ModernMainWindow(QMainWindow):
         self.image_window.load_prompt_to_main_ui.connect(self.set_positive_prompt)
         self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
         self.connect_checkbox_signals()
+        self.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
+        self.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
+
 
     def set_positive_prompt(self, prompt: str):
         """전달받은 프롬프트를 메인 UI의 프롬프트 입력창에 설정합니다."""
@@ -1559,7 +1587,7 @@ class ModernMainWindow(QMainWindow):
         
         # [신규] 새 검색 시작 시 기존 결과 초기화
         self.search_results = SearchResultModel()
-        self.result_label1.setText("검색 프롬프트 행: 0")
+        self.result_label1.setText("Searched: 0")
 
         # UI에서 검색 파라미터 수집
         search_params = {
@@ -1590,8 +1618,8 @@ class ModernMainWindow(QMainWindow):
     def on_partial_search_result(self, partial_df: pd.DataFrame):
         """부분 검색 결과를 받아 UI에 즉시 반영"""
         self.search_results.append_dataframe(partial_df)
-        self.result_label1.setText(f"검색 프롬프트 행: {self.search_results.get_count()}")
-        self.result_label2.setText(f"남은 프롬프트 행: {self.search_results.get_count()}")
+        self.result_label1.setText(f"Searched: {self.search_results.get_count()}")
+        self.result_label2.setText(f"Remain: {self.search_results.get_count()}")
 
     def on_search_complete(self, total_count: int):
         """검색 완료 시 호출되는 슬롯, 결과 파일 저장"""
@@ -1668,8 +1696,8 @@ class ModernMainWindow(QMainWindow):
         self.search_results.append_dataframe(result_model.get_dataframe())
         self.search_results.deduplicate()
         count = self.search_results.get_count()
-        self.result_label1.setText(f"검색 프롬프트 행: {count}")
-        self.result_label2.setText(f"남은 프롬프트 행: {count}")
+        self.result_label1.setText(f"Searched: {count}")
+        self.result_label2.setText(f"Remain: {count}")
         self.status_bar.showMessage(f"✅ 이전 검색 결과 {count}개를 불러왔습니다.", 5000)
         self.load_thread.quit()         
 
@@ -1686,8 +1714,8 @@ class ModernMainWindow(QMainWindow):
         """심층 검색 탭에서 할당된 결과를 메인 UI에 반영"""
         self.search_results = new_search_result
         count = self.search_results.get_count()
-        self.result_label1.setText(f"검색 프롬프트 행: {count}")
-        self.result_label2.setText(f"남은 프롬프트 행: {count}")
+        self.result_label1.setText(f"Searched: {count}")
+        self.result_label2.setText(f"Remain: {count}")
         self.status_bar.showMessage(f"✅ 심층 검색 결과 {count}개가 메인에 할당되었습니다.", 5000)
 
     # --- [신규] 프롬프트 생성 관련 메서드들 ---
@@ -1850,7 +1878,7 @@ class ModernMainWindow(QMainWindow):
     # [신규] prompt_popped 시그널을 처리할 슬롯
     def on_prompt_popped(self, remaining_count: int):
         """프롬프트가 하나 사용된 후 남은 행 개수를 UI에 업데이트합니다."""
-        self.result_label2.setText(f"남은 프롬프트 행: {remaining_count}")
+        self.result_label2.setText(f"Remain: {remaining_count}")
 
     # [신규] 현재 활성화된 API 모드를 반환하는 메서드
     def get_current_api_mode(self) -> str:
@@ -2131,6 +2159,49 @@ class ModernMainWindow(QMainWindow):
             # 버튼 상태 복원
             self.save_settings_btn.setText("💾 설정 저장")
             self.save_settings_btn.setEnabled(True)
+
+    def _load_custom_workflow_from_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "ComfyUI 워크플로우 이미지 선택", "", "Image Files (*.png)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            from core.comfyui_utils import WorkflowValidationDialog
+            with Image.open(file_path) as img:
+                # ComfyUI는 'prompt'와 'workflow' 키에 JSON 문자열로 저장합니다.
+                metadata = img.info
+                if 'prompt' not in metadata or 'workflow' not in metadata:
+                    QMessageBox.warning(self, "오류", "선택한 이미지에서 ComfyUI 워크플로우 정보를 찾을 수 없습니다. 만약 NAIA에서 생성한 이미지라면 COMFYUI에서 먼저 이미지를 생성하여 저장한 뒤 NAIA로 불러와주세요.")
+                    return
+
+                # 워크플로우 분석 및 검증
+                analysis_result = self.workflow_manager.analyze_workflow_for_ui(metadata)
+
+                # 검증 결과 팝업 표시
+                dialog = WorkflowValidationDialog(analysis_result, self)
+                dialog.exec()
+
+                # 검증 성공 시, 실제 워크플로우를 매니저에 로드
+                if analysis_result['success']:
+                    # 기존 load_workflow_from_metadata를 사용하여 워크플로우를 정식으로 로드
+                    self.workflow_manager.load_workflow_from_metadata(metadata)
+                    self.workflow_custom_btn.setEnabled(True)
+                    self.workflow_custom_btn.setChecked(True)
+                    self.status_bar.showMessage("✅ 커스텀 워크플로우가 활성화되었습니다.", 3000)
+
+        except Exception as e:
+            QMessageBox.critical(self, "파일 오류", f"이미지를 분석하는 중 오류가 발생했습니다:\n{e}")
+
+    # [신규] 워크플로우 타입 토글 시 호출될 메서드
+    def _on_workflow_type_changed(self):
+        if self.workflow_default_btn.isChecked():
+            self.workflow_manager.clear_user_workflow()
+            # 커스텀 워크플로우가 비워졌으므로 버튼을 다시 비활성화
+            self.workflow_custom_btn.setEnabled(False)
+            self.status_bar.showMessage("🔄 기본 워크플로우로 전환되었습니다.", 3000)
 
 
 if __name__ == "__main__":

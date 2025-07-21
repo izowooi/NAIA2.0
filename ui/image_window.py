@@ -9,11 +9,62 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QSplitter, QPushButton,
     QHBoxLayout, QCheckBox, QScrollArea, QMenu, QDialog, QFileDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QPixmap, QMouseEvent, QPainter, QColor, QAction
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QObject, QThread
+from PyQt6.QtGui import QPixmap, QMouseEvent, QPainter, QColor, QAction, QKeyEvent
 from PIL import Image, ImageQt
 from ui.theme import DARK_STYLES, DARK_COLORS
 import piexif, io
+
+class AllImagesDownloader(QObject):
+    # 진행률 시그널: (현재 순번, 전체 개수, 파일명/메시지)
+    progress_updated = pyqtSignal(int, int, str)
+    # 완료 시그널: (실제로 저장된 파일 개수)
+    finished = pyqtSignal(int)
+
+    def run(self, history_items, save_path, save_as_webp, save_counter_start):
+        """백그라운드 스레드에서 실행될 이미지 저장 로직"""
+        saved_count = 0
+        current_counter = save_counter_start
+        total_items = len(history_items)
+
+        for i, item in enumerate(history_items):
+            try:
+                # 1. 이미 저장되었는지 파일 경로와 실제 파일 존재 여부로 확인
+                if item.filepath and os.path.exists(item.filepath):
+                    self.progress_updated.emit(i + 1, total_items, f"[건너뜀] {os.path.basename(item.filepath)}")
+                    continue
+
+                # 2. 저장할 원본 데이터가 없으면 건너뜀
+                if not item.raw_bytes:
+                    self.progress_updated.emit(i + 1, total_items, "[건너뜀] 원본 데이터 없음")
+                    continue
+
+                # 3. 파일명 생성 및 저장
+                suffix = "webp" if save_as_webp else "png"
+                filename = f"{current_counter:05d}.{suffix}"
+                file_path = save_path / filename
+
+                # PIL 이미지 객체로 변환
+                img = Image.open(io.BytesIO(item.raw_bytes))
+                
+                # 메타데이터와 함께 저장
+                if save_as_webp:
+                    exif = img.info.get('exif', b'')
+                    img.save(str(file_path), format='WEBP', quality=95, method=6, exif=exif)
+                else:
+                    with open(str(file_path), 'wb') as f:
+                        f.write(item.raw_bytes)
+
+                # HistoryItem 객체에 저장 경로 업데이트 (중복 저장 방지용)
+                item.filepath = str(file_path)
+                saved_count += 1
+                current_counter += 1
+                self.progress_updated.emit(i + 1, total_items, f"[저장됨] {filename}")
+
+            except Exception as e:
+                self.progress_updated.emit(i + 1, total_items, f"[오류] {e}")
+
+        self.finished.emit(saved_count)
 
 # --- 1. ImageLabel 클래스: 오직 이미지 표시와 리사이징만 담당 ---
 class ImageLabel(QLabel):
@@ -58,6 +109,7 @@ class ImageHistoryWindow(QWidget):
     history_item_selected = pyqtSignal(HistoryItem)
     load_prompt_requested = pyqtSignal(str)
     reroll_requested = pyqtSignal(pd.Series)
+    history_cleared = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,7 +172,10 @@ class ImageHistoryWindow(QWidget):
         """새로운 히스토리 아이템을 받아 위젯을 생성하고 목록 최상단에 추가"""
         item_widget = HistoryItemWidget(history_item)
         item_widget.item_selected.connect(self.on_item_selected)
+        item_widget.delete_requested.connect(self.on_item_delete_requested)
 
+        item_widget.select_previous_requested.connect(self.select_previous_item)
+        item_widget.select_next_requested.connect(self.select_next_item)
         # [추가] HistoryItemWidget의 시그널을 ImageHistoryWindow의 시그널에 연결
         item_widget.load_prompt_requested.connect(self.load_prompt_requested)
         item_widget.reroll_requested.connect(self.reroll_requested)
@@ -130,9 +185,9 @@ class ImageHistoryWindow(QWidget):
         self.history_widgets.insert(0, item_widget)
         
         # 새로 추가된 아이템을 선택 상태로 만듦
-        self.on_item_selected(history_item)
+        self.on_item_selected(history_item, "generated")
 
-    def on_item_selected(self, history_item: HistoryItem):
+    def on_item_selected(self, history_item: HistoryItem, _message = None):
         """히스토리 아이템이 선택되었을 때 처리"""
         # 이전에 선택된 위젯의 선택 상태 해제
         if self.current_selected_widget:
@@ -143,6 +198,7 @@ class ImageHistoryWindow(QWidget):
             if widget.history_item == history_item:
                 widget.set_selected(True)
                 self.current_selected_widget = widget
+                if _message != "generated": widget.setFocus()
                 break
         
         # 상위 위젯(ImageWindow)으로 선택된 아이템 정보 전달
@@ -163,11 +219,71 @@ class ImageHistoryWindow(QWidget):
         if self.history_widgets:
             next_idx = min(idx, len(self.history_widgets)-1)
             self.select_item_by_idx(next_idx)
+        else:
+            self.history_cleared.emit()
         return True
 
     def select_item_by_idx(self, idx):
         if 0 <= idx < len(self.history_widgets):
             self.on_item_selected(self.history_widgets[idx].history_item)
+
+    def on_item_delete_requested(self, widget_to_remove):
+        """히스토리 컨텍스트 메뉴의 삭제 요청을 처리합니다."""
+        if widget_to_remove not in self.history_widgets:
+            return
+
+        is_current = (self.current_selected_widget == widget_to_remove)
+        
+        try:
+            idx = self.history_widgets.index(widget_to_remove)
+        except ValueError:
+            return
+
+        self.history_widgets.pop(idx)
+        self.history_layout.removeWidget(widget_to_remove)
+        widget_to_remove.deleteLater()
+
+        # 삭제된 아이템이 현재 선택된 아이템이었을 경우 후처리
+        if is_current:
+            self.current_selected_widget = None
+            if self.history_widgets:
+                # 다음 아이템 자동 선택
+                next_idx = min(idx, len(self.history_widgets) - 1)
+                self.select_item_by_idx(next_idx)
+            else:
+                # 히스토리가 비었음을 알림
+                self.history_cleared.emit()
+
+    # [추가] 키보드 네비게이션을 처리하는 슬롯 메서드들
+    def get_current_index(self) -> int:
+        """현재 선택된 위젯의 인덱스를 반환합니다."""
+        if self.current_selected_widget and self.current_selected_widget in self.history_widgets:
+            return self.history_widgets.index(self.current_selected_widget)
+        return -1
+
+    def select_previous_item(self):
+        """이전 아이템을 선택합니다."""
+        current_idx = self.get_current_index()
+        if current_idx > 0:  # 첫 번째 아이템이 아닐 경우에만
+            self.select_item_by_idx(current_idx - 1)
+
+    def select_next_item(self):
+        """다음 아이템을 선택합니다."""
+        current_idx = self.get_current_index()
+        # 마지막 아이템이 아닐 경우에만
+        if current_idx != -1 and current_idx < len(self.history_widgets) - 1:
+            self.select_item_by_idx(current_idx + 1)
+
+    # [신규] 메인 뷰를 업데이트하지 않고 모든 히스토리를 정리하는 메서드
+    def clear_all_items(self):
+        """UI 갱신 없이 모든 히스토리 아이템을 제거합니다."""
+        for widget in self.history_widgets[:]: # 리스트 복사본으로 순회
+            self.history_layout.removeWidget(widget)
+            widget.deleteLater()
+        
+        self.history_widgets.clear()
+        self.current_selected_widget = None
+        self.history_cleared.emit() # 마지막에 한 번만 신호를 보내 메인 뷰 정리
 
 # [신규] 히스토리 목록의 개별 항목을 표시하는 위젯
 class HistoryItemWidget(QWidget):
@@ -175,6 +291,9 @@ class HistoryItemWidget(QWidget):
     load_prompt_requested = pyqtSignal(str)
     reroll_requested = pyqtSignal(pd.Series)
     item_selected = pyqtSignal(HistoryItem)
+    delete_requested = pyqtSignal(object)
+    select_previous_requested = pyqtSignal()
+    select_next_requested = pyqtSignal()
 
     def __init__(self, history_item: HistoryItem, parent=None):
         super().__init__(parent)
@@ -183,6 +302,7 @@ class HistoryItemWidget(QWidget):
         self.init_ui()
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -195,6 +315,21 @@ class HistoryItemWidget(QWidget):
         
         layout.addWidget(self.thumbnail_label)
         self.update_selection_style()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        """키보드 방향키 입력을 감지하여 시그널을 발생시킵니다."""
+        if event.key() == Qt.Key.Key_Up:
+            self.select_previous_requested.emit()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Down:
+            self.select_next_requested.emit()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Delete:  # [추가] Delete 키 감지
+            self.delete_requested.emit(self)    # [추가] 기존 삭제 시그널 호출
+            event.accept()
+        else:
+            # 다른 키 입력은 기본 이벤트 핸들러에 전달
+            super().keyPressEvent(event)
 
     def show_context_menu(self, pos):
         """우클릭 시 컨텍스트 메뉴를 표시합니다."""
@@ -241,6 +376,10 @@ class HistoryItemWidget(QWidget):
         copy_webp_action.triggered.connect(lambda: self.copy_image_to_clipboard('WEBP'))
         menu.addAction(copy_png_action)
         menu.addAction(copy_webp_action)
+        menu.addSeparator()
+        delete_action = QAction("🗑️ 이미지 삭제", self)
+        delete_action.triggered.connect(lambda: self.delete_requested.emit(self))
+        menu.addAction(delete_action)
         menu.exec(self.mapToGlobal(pos))
 
     def emit_load_prompt(self):
@@ -419,21 +558,44 @@ class ImageWindow(QWidget):
         self.save_button.setStyleSheet(DARK_STYLES['secondary_button'])
         self.save_button.setToolTip("현재 보고 있는 이미지를 EXIF 정보와 함께 저장합니다.")
         self.save_button.clicked.connect(self.save_current_image)
+
+        self.advanced_button = QPushButton("⚙️ 고급")
+        self.advanced_button.setStyleSheet(DARK_STYLES['secondary_button'])
+        self.advanced_menu = QMenu(self)
+        menu_style = f"""
+            QMenu {{ background-color: {DARK_COLORS['bg_tertiary']}; color: {DARK_COLORS['text_primary']}; border: 1px solid {DARK_COLORS['border']}; border-radius: 4px; padding: 5px; }}
+            QMenu::item {{ padding: 8px 20px; border-radius: 4px; }}
+            QMenu::item:selected {{ background-color: {DARK_COLORS['accent_blue']}; }}
+        """
+        self.advanced_menu.setStyleSheet(menu_style)
+
+        download_all_action = QAction("💾 전체 이미지 다운로드", self)
+        download_all_action.triggered.connect(lambda: self.start_download_all(clear_after=False))
+        self.advanced_menu.addAction(download_all_action)
+
+        download_clear_action = QAction("🗑️ 다운로드 + 히스토리 정리", self)
+        download_clear_action.triggered.connect(lambda: self.start_download_all(clear_after=True))
+        self.advanced_menu.addAction(download_clear_action)
+
+        # 버튼에 메뉴를 영구적으로 할당합니다.
+        self.advanced_button.setMenu(self.advanced_menu)
+
+        # [핵심] 메뉴가 표시되기 직전에 상태를 업데이트하도록 aboutToShow 신호를 연결합니다.
+        self.advanced_menu.aboutToShow.connect(self.update_advanced_menu_state)
         
         self.save_as_webp_checkbox = QCheckBox("WEBP로 저장")
         self.save_as_webp_checkbox.setStyleSheet(DARK_STYLES['dark_checkbox'])
 
         # 초기화 버튼
-        clear_button = QPushButton("🗑️ 지우기")
+        clear_button = QPushButton(" 🗑️ ")
         clear_button.setStyleSheet("""
             QPushButton {
                 background-color: #d32f2f;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 14px;
-                font-weight: bold;
+                padding: 6px 12px;
+                font-size: 18px;
             }
             QPushButton:hover {
                 background-color: #f44336;
@@ -444,6 +606,7 @@ class ImageWindow(QWidget):
         control_layout.addStretch()
         control_layout.addWidget(clear_button)
         control_layout.addWidget(self.save_button)
+        control_layout.addWidget(self.advanced_button)
         control_layout.addWidget(self.save_as_webp_checkbox)
 
         self.open_folder_button = QPushButton("폴더 열기")
@@ -583,6 +746,14 @@ class ImageWindow(QWidget):
             reroll_action.setEnabled(False)
         reroll_action.triggered.connect(self._reroll_current_prompt)
         menu.addAction(reroll_action)
+
+        # [수정] 파일 경로가 있을 때만 '파일 위치 열기' 옵션을 추가합니다.
+        filepath = self.current_history_item.filepath
+        if filepath and os.path.exists(filepath):
+            menu.addSeparator()
+            reveal_action = QAction("📁 파일 위치 열기", self)
+            reveal_action.triggered.connect(lambda: self._open_file_in_explorer(filepath))
+            menu.addAction(reveal_action)
         
         copy_png_action = QAction("PNG로 클립보드 복사", self)
         copy_webp_action = QAction("WEBP로 클립보드 복사", self)
@@ -1026,6 +1197,11 @@ class ImageWindow(QWidget):
             return
 
         item = self.current_history_item
+        # [수정] 파일 경로가 있고, 실제 파일도 존재하면 저장 건너뛰기
+        if item.filepath and os.path.exists(item.filepath):
+            self.app_context.main_window.status_bar.showMessage(f"✅ 이미 저장된 파일입니다: {os.path.basename(item.filepath)}", 3000)
+            return
+
         if not item.raw_bytes:
             if hasattr(self.app_context, 'main_window') and hasattr(self.app_context.main_window, 'status_bar'):
                 self.app_context.main_window.status_bar.showMessage("⚠️ 저장할 이미지의 원본 데이터가 없습니다.", 3000)
@@ -1040,14 +1216,14 @@ class ImageWindow(QWidget):
         file_path = save_path / filename
         
         # 3. 메타데이터와 함께 저장
-        self.save_image_with_metadata(str(file_path), item.raw_bytes, item.info_text, as_webp=is_webp)
+        success = self.save_image_with_metadata(str(file_path), item.raw_bytes, item.info_text, as_webp=is_webp)
         
         # 4. 카운터 증가
-        self.save_counter += 1
-        
-        # 5. 상태 메시지
-        if hasattr(self.app_context, 'main_window') and hasattr(self.app_context.main_window, 'status_bar'):
+        if success:
+            item.filepath = str(file_path)  # [핵심] 저장 성공 시 HistoryItem에 파일 경로 주입
+            self.save_counter += 1
             self.app_context.main_window.status_bar.showMessage(f"✅ 이미지 저장 완료: {filename}", 3000)
+
     
     def extract_info_from_image(self, image: Image.Image, _info):
         """
@@ -1120,3 +1296,81 @@ class ImageWindow(QWidget):
         qimg.loadFromData(buf.getvalue())
         QApplication.clipboard().setPixmap(qimg)
         print(f"✅ 이미지가 클립보드에 복사되었습니다. ({fmt})")
+
+    # [신규] 전체 다운로드 작업을 시작하는 메서드
+    def start_download_all(self, clear_after=False):
+        if not self.image_history_window.history_widgets:
+            self.app_context.main_window.status_bar.showMessage("⚠️ 저장할 이미지가 없습니다.", 3000)
+            return
+
+        items_to_save = [w.history_item for w in self.image_history_window.history_widgets]
+        items_to_save.reverse() # 오래된 이미지부터 순서대로 저장
+
+        self.worker_thread = QThread()
+        self.downloader = AllImagesDownloader()
+        self.downloader.moveToThread(self.worker_thread)
+
+        self.downloader.progress_updated.connect(self.on_download_progress)
+        
+        # 완료 후 동작 결정
+        if clear_after:
+            self.downloader.finished.connect(self.on_download_finished_and_clear)
+        else:
+            self.downloader.finished.connect(self.on_download_finished)
+
+        self.worker_thread.started.connect(lambda: self.downloader.run(
+            items_to_save,
+            self.app_context.session_save_path,
+            self.save_as_webp_checkbox.isChecked(),
+            self.save_counter
+        ))
+        
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+        self.advanced_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.worker_thread.start()
+
+    # [신규] 워커 진행률 및 완료 신호를 처리할 슬롯들
+    def on_download_progress(self, current, total, message):
+        self.app_context.main_window.status_bar.showMessage(f"다운로드 중 ({current}/{total}): {message}")
+
+    def on_download_finished(self, saved_count):
+        self.app_context.main_window.status_bar.showMessage(f"✅ 전체 다운로드 완료. {saved_count}개 파일 저장됨.", 5000)
+        self.save_counter += saved_count
+        self.advanced_button.setEnabled(True)
+        self.save_button.setEnabled(True)
+        if self.worker_thread: self.worker_thread.quit()
+
+    def on_download_finished_and_clear(self, saved_count):
+        self.on_download_finished(saved_count)
+        self.image_history_window.clear_all_items()
+
+    def update_advanced_menu_state(self):
+        """[신규] 고급 메뉴가 표시되기 직전에 호출되어 메뉴 항목의 활성화 상태를 결정합니다."""
+        is_history_not_empty = bool(self.image_history_window.history_widgets)
+        
+        # 메뉴에 포함된 모든 액션들의 활성화 상태를 현재 히스토리 상태에 따라 설정
+        for action in self.advanced_menu.actions():
+            action.setEnabled(is_history_not_empty)
+
+    def _open_file_in_explorer(self, filepath: str):
+        """지정된 파일 경로를 각 운영체제에 맞는 파일 탐색기에서 엽니다."""
+        import subprocess
+        import platform
+
+        if not filepath or not os.path.exists(filepath):
+            # 파일 경로가 유효하지 않으면 상태바에 메시지를 표시합니다.
+            if hasattr(self.app_context, 'main_window'):
+                self.app_context.main_window.status_bar.showMessage("⚠️ 파일 경로를 찾을 수 없습니다.", 3000)
+            return
+
+        system = platform.system()
+        if system == "Windows":
+            # Windows: explorer를 사용하여 파일을 선택한 상태로 폴더를 엽니다.
+            subprocess.run(['explorer', '/select,', os.path.normpath(filepath)])
+        elif system == "Darwin":  # macOS
+            # macOS: open -R 옵션으로 파일을 선택한 상태로 Finder를 엽니다.
+            subprocess.run(['open', '-R', filepath])
+        else:  # Linux
+            # Linux: xdg-open으로 파일이 포함된 디렉터리를 엽니다.
+            subprocess.run(['xdg-open', os.path.dirname(filepath)])

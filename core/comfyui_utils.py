@@ -5,6 +5,10 @@ import requests
 import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QPushButton, QGroupBox, QTextEdit
+)
+from ui.theme import DARK_COLORS, DARK_STYLES
 
 class ComfyUIAPIUtils:
     """ComfyUI API와의 통신을 위한 유틸리티 클래스"""
@@ -193,3 +197,61 @@ class ComfyUIAPIUtils:
         except Exception as e:
             print(f"❌ ComfyUI 큐 정리 실패: {e}")
             return False
+        
+class WorkflowValidationDialog(QDialog):
+    """워크플로우 검증 결과를 표시하는 팝업 다이얼로그"""
+
+    def __init__(self, validation_result: dict, parent=None):
+        super().__init__(parent)
+        self.result = validation_result
+        self.setWindowTitle("워크플로우 검증 결과")
+        self.setMinimumSize(500, 600)
+        self.setStyleSheet(f"background-color: {DARK_COLORS['bg_primary']}; color: {DARK_COLORS['text_primary']};")
+        
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # 필수 노드 그룹
+        required_group = QGroupBox("[필수 노드]")
+        required_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 16px; }")
+        required_layout = QVBoxLayout()
+        self.required_text_edit = QTextEdit()
+        self.required_text_edit.setReadOnly(True)
+        self.required_text_edit.setStyleSheet(DARK_STYLES['compact_textedit'])
+        required_layout.addWidget(self.required_text_edit)
+        required_group.setLayout(required_layout)
+        
+        # 커스텀 노드 그룹
+        custom_group = QGroupBox("[커스텀 노드]")
+        custom_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 16px; }")
+        custom_layout = QVBoxLayout()
+        self.custom_text_edit = QTextEdit()
+        self.custom_text_edit.setReadOnly(True)
+        self.custom_text_edit.setStyleSheet(DARK_STYLES['compact_textedit'])
+        custom_layout.addWidget(self.custom_text_edit)
+        custom_group.setLayout(custom_layout)
+
+        # 닫기 버튼
+        close_button = QPushButton("닫기")
+        close_button.setStyleSheet(DARK_STYLES['secondary_button'])
+        close_button.clicked.connect(self.accept)
+
+        layout.addWidget(required_group)
+        layout.addWidget(custom_group)
+        layout.addWidget(close_button)
+        
+        self.populate_data()
+
+    def populate_data(self):
+        # 필수 노드 결과 표시
+        required_text = ""
+        for status, class_name in sorted(self.result['required']):
+            color = DARK_COLORS['success'] if status == "PASS" else DARK_COLORS['error']
+            required_text += f'<span style="color: {color};">{status}</span> | {class_name}<br>'
+        self.required_text_edit.setHtml(required_text)
+
+        # 커스텀 노드 목록 표시
+        custom_text = "\n".join(sorted(list(set(self.result['custom']))))
+        self.custom_text_edit.setText(custom_text if custom_text else "감지된 커스텀 노드 없음")
