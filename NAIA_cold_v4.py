@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
     QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox,
-    QFileDialog, QDialog, QButtonGroup
+    QFileDialog, QWidgetAction, QButtonGroup, QMenu
 )
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
@@ -18,7 +18,7 @@ from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
-from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator
+from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer
 from core.search_controller import SearchController
 from core.search_result_model import SearchResultModel
@@ -96,6 +96,7 @@ def get_autocomplete_manager(app_context=None):
 class ModernMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.kr_tags_df = self._load_kr_tags()
         self.setWindowTitle("NAIA v2.0.0 Dev")
         self.set_initial_window_size()
         self.params_expanded = False
@@ -463,6 +464,9 @@ class ModernMainWindow(QMainWindow):
         self.main_prompt_textedit.setPlaceholderText("메인 프롬프트를 입력하세요...")
         self.main_prompt_textedit.setMinimumHeight(100)
         main_prompt_layout.addWidget(self.main_prompt_textedit)
+        self.main_prompt_textedit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.main_prompt_textedit.customContextMenuRequested.connect(self.show_prompt_context_menu)
+        self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         
         self.negative_prompt_textedit = QTextEdit()
         self.negative_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
@@ -2076,6 +2080,124 @@ class ModernMainWindow(QMainWindow):
             print(f"⚠️ 동적 창 크기 설정 실패: {e}. 기본 크기(1280x720)로 설정합니다.")
             # 오류 발생 시 안전을 위한 기본값 설정
             self.resize(1280, 720)
+
+    def show_prompt_context_menu(self, pos):
+        """main_prompt_textedit에서 우클릭 시 KR_tags 정보를 포함한 커스텀 메뉴를 표시합니다."""
+        menu = QMenu(self)
+
+        # --- 1. 커서 위치의 태그 찾기 ---
+        cursor = self.main_prompt_textedit.cursorForPosition(pos)
+        text = self.main_prompt_textedit.toPlainText()
+        tag_under_cursor, start_pos, end_pos = self._get_tag_at_cursor(cursor)
+
+        # --- 2. Parquet 데이터 조회 및 커스텀 메뉴 생성 ---
+        if not self.kr_tags_df.empty and tag_under_cursor:
+            matching_rows = self.kr_tags_df[self.kr_tags_df['tag'] == tag_under_cursor]
+
+            if not matching_rows.empty:
+                data = matching_rows.iloc[0]
+                
+                # 클릭 불가능한 정보 표시용 액션을 만드는 헬퍼 함수
+                def create_info_action(text, font_size, is_bold=False, word_wrap=False):
+                    widget_action = QWidgetAction(menu)
+                    widget = QWidget()
+                    layout = QHBoxLayout(widget)
+                    layout.setContentsMargins(8, 4, 8, 4)
+                    label = QLabel(str(text)) # 모든 텍스트를 문자열로 변환
+                    style = f"font-size: {font_size}px; color: #000000;"
+                    if is_bold: style += " font-weight: 600;"
+                    label.setStyleSheet(style)
+                    if word_wrap:
+                        label.setWordWrap(True)
+                        label.setMinimumWidth(300) # 줄바꿈을 위한 최소 너비
+                    layout.addWidget(label)
+                    widget_action.setDefaultWidget(widget)
+                    widget_action.setEnabled(False) # 클릭 비활성화
+                    return widget_action
+
+                # 아이템 1: 태그 (24px) + 카운트 (14px)
+                title_action = QWidgetAction(menu)
+                title_widget = QWidget()
+                title_layout = QHBoxLayout(title_widget)
+                title_layout.setContentsMargins(8, 4, 8, 4)
+                
+                tag_label = QLabel(data.get('tag', ''))
+                tag_label.setStyleSheet("font-size: 24px; font-weight: 600; color: #000000;")
+                
+                count_val = data.get('count', 0)
+                count_label = QLabel(f"{count_val:,}" if pd.notna(count_val) else "")
+                count_label.setStyleSheet("font-size: 15px; color: #111111;")
+                
+                title_layout.addWidget(tag_label)
+                title_layout.addStretch()
+                title_layout.addWidget(count_label)
+                title_action.setDefaultWidget(title_widget)
+                title_action.setEnabled(False)
+                menu.addAction(title_action)
+                menu.addSeparator()
+
+                # 아이템 2: 카테고리 (18px)
+                category_text = data.get('category')
+                if pd.notna(category_text) and category_text:
+                    menu.addAction(create_info_action(f"Category: {category_text}", 18))
+
+                # 아이템 3: 설명 (14px, 자동 줄바꿈)
+                desc_text = data.get('desc')
+                if pd.notna(desc_text) and desc_text:
+                    menu.addAction(create_info_action(desc_text, 15, word_wrap=True))
+                
+                # 아이템 4: 키워드 (14px)
+                keywords_text = data.get('keywords')
+                if pd.notna(keywords_text) and keywords_text:
+                    menu.addAction(create_info_action(f"Keywords: {keywords_text}", 15))
+
+                menu.addSeparator()
+
+        # --- 3. 기존 표준 메뉴 (복사, 붙여넣기 등) 추가 ---
+        standard_menu = self.main_prompt_textedit.createStandardContextMenu()
+        menu.addActions(standard_menu.actions())
+
+        menu.exec(self.main_prompt_textedit.mapToGlobal(pos))
+
+    def _get_tag_at_cursor(self, cursor):
+        """커서 위치의 태그와 시작/끝 위치를 반환하는 헬퍼 메서드"""
+        cursor_pos = cursor.position()
+        text = self.main_prompt_textedit.toPlainText()
+
+        start_pos = text.rfind(',', 0, cursor_pos) + 1
+        end_pos = text.find(',', cursor_pos)
+        if end_pos == -1:
+            end_pos = len(text)
+        
+        # 앞뒤 공백 제거
+        temp_start = start_pos
+        while temp_start < end_pos and text[temp_start].isspace():
+            temp_start += 1
+        
+        tag = text[temp_start:end_pos].strip()
+        return tag, start_pos, end_pos
+
+    def _replace_tag_in_prompt(self, new_tag, start, end):
+        """선택한 추천 태그로 프롬프트를 교체하는 헬퍼 메서드"""
+        cursor = self.main_prompt_textedit.textCursor()
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(new_tag)
+
+    def _load_kr_tags(self):
+        """data/KR_tags.parquet 파일을 로드하여 DataFrame으로 반환합니다."""
+        filepath = 'data/KR_tags.parquet'
+        if os.path.exists(filepath):
+            try:
+                print(f"🔍 '{filepath}' 파일 로딩 중...")
+                df = pd.read_parquet(filepath)
+                print(f"✅ '{filepath}' 로딩 완료. {len(df):,}개 태그.")
+                return df
+            except Exception as e:
+                print(f"❌ '{filepath}' 파일 로딩 실패: {e}")
+        else:
+            print(f"⚠️ '{filepath}' 파일을 찾을 수 없습니다.")
+        return pd.DataFrame() # 실패 시 빈 DataFrame 반환
 
     def save_all_current_settings(self):
         """현재 모든 설정을 저장하는 메서드"""
