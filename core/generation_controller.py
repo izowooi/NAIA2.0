@@ -112,7 +112,8 @@ class GenerationController:
     def __init__(self, context: 'AppContext', module_instances: list):
         self.context = context
         self.module_instances = module_instances
-        
+        self.workflow_manager = self.context.comfyui_workflow_manager # AppContext에서 참조
+
         # 스레드 관련 초기화
         self.generation_thread = None
         self.generation_worker = None
@@ -160,7 +161,14 @@ class GenerationController:
             if not is_valid:
                 self.context.main_window.status_bar.showMessage(f"⚠️ 유효성 검사 실패: {error_msg}")
                 return
-
+            
+            if api_mode == "COMFYUI":
+                final_workflow = self.workflow_manager.apply_params_to_workflow(params)
+                if not final_workflow:
+                    self.context.main_window.status_bar.showMessage("❌ 워크플로우 생성에 실패했습니다. 로그를 확인하세요.")
+                    return
+                params['workflow'] = final_workflow
+            
             # --- 5. 스레드에서 API 호출 시작 ---
             self._start_threaded_generation(params, source_row)
 

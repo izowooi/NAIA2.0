@@ -460,6 +460,32 @@ DARK_STYLES = {
             border-radius: 4px;
         }}
     """,
+    'toggle_button': f"""
+        QPushButton {{
+            background-color: {DARK_COLORS['bg_tertiary']};
+            border: 1px solid {DARK_COLORS['border']};
+            border-radius: 4px;
+            padding: 8px 16px;
+            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+            font-weight: 500;
+            color: {DARK_COLORS['text_primary']};
+            font-size: 18px;
+        }}
+        QPushButton:hover:!checked {{
+            background-color: {DARK_COLORS['bg_hover']};
+            border: 1px solid {DARK_COLORS['border_light']};
+        }}
+        QPushButton:checked {{
+            background-color: {DARK_COLORS['accent_blue_hover']}; /* 짙은 파란색으로 변경 */
+            border: 1px solid {DARK_COLORS['accent_blue']};
+            color: {DARK_COLORS['text_primary']};
+            font-weight: 600;
+        }}
+        QPushButton:disabled {{
+            background-color: #404040;
+            color: #888888;
+        }}
+    """,
 }
 
 CUSTOM = {

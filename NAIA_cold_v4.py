@@ -4,10 +4,12 @@ import os
 import json
 import pandas as pd
 import random
+from PIL import Image
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
-    QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox
+    QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox,
+    QFileDialog, QDialog, QButtonGroup
 )
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
@@ -156,6 +158,7 @@ class ModernMainWindow(QMainWindow):
         print("🔍 AutoCompleteManager 전역 인스턴스 요청 중...")
         # 새로운 getter 패턴 사용
         self.autocomplete_manager = get_autocomplete_manager(app_context=self.app_context)
+        self.workflow_manager = self.app_context.comfyui_workflow_manager
 
     # 자동완성 기능 사용 가능 여부를 확인하는 헬퍼 메서드
     def is_autocomplete_available(self) -> bool:
@@ -812,25 +815,47 @@ class ModernMainWindow(QMainWindow):
         self.zsnr_checkbox.setToolTip("Zero Signal-to-Noise Ratio 옵션을 사용합니다")
         self.comfyui_option_widget_layout.addWidget(self.zsnr_checkbox)
 
-        # 🔧 향후 확장을 위한 업스케일러 섹션 (비활성화 상태)
-        comfyui_upscaler_label = QLabel("업스케일러 (미구현)")
-        comfyui_upscaler_label.setStyleSheet(DARK_STYLES['label_style'] + "color: #888888;")
-        comfyui_upscaler_label.setEnabled(False)
-        self.comfyui_option_widget_layout.addWidget(comfyui_upscaler_label)
+        # 1. 기존 라벨을 "워크플로우 선택"으로 재사용하고 활성화합니다.
+        comfyui_workflow_label = QLabel("워크플로우 선택:")
+        comfyui_workflow_label.setStyleSheet(DARK_STYLES['label_style'])
+        comfyui_workflow_label.setEnabled(True)
+        self.comfyui_option_widget_layout.addWidget(comfyui_workflow_label)
 
-        self.comfyui_upscaler_section = QWidget()
-        self.comfyui_upscaler_section.setEnabled(False)
-        comfyui_upscaler_layout = QHBoxLayout(self.comfyui_upscaler_section)
-        comfyui_upscaler_layout.setContentsMargins(0, 0, 0, 0)
+        # 2. 기존 QWidget과 QHBoxLayout을 버튼들을 담을 컨테이너로 재사용합니다.
+        self.comfyui_workflow_section = QWidget()
+        self.comfyui_workflow_section.setEnabled(True)
+        comfyui_workflow_layout = QHBoxLayout(self.comfyui_workflow_section)
+        comfyui_workflow_layout.setContentsMargins(0, 0, 0, 0)
+        comfyui_workflow_layout.setSpacing(6)
 
-        comfyui_upscaler_combo = QComboBox()
-        #comfyui_upscaler_combo.addItem("향후 업데이트 예정")
-        comfyui_upscaler_combo.setStyleSheet(DARK_STYLES['compact_lineedit'] + "color: #888888;")
-        comfyui_upscaler_combo.setEnabled(False)
-        #comfyui_upscaler_layout.addWidget(comfyui_upscaler_combo)
-        comfyui_upscaler_layout.addStretch()
+        # 3. 토글 버튼들을 생성합니다. (클래스 멤버 변수로 선언해야 다른 메서드에서 접근 가능)
+        self.workflow_default_btn = QPushButton("기본")
+        self.workflow_default_btn.setCheckable(True)
+        self.workflow_default_btn.setChecked(True)
+        self.workflow_default_btn.setStyleSheet(DARK_STYLES['toggle_button'])
 
-        self.comfyui_option_widget_layout.addWidget(self.comfyui_upscaler_section)
+        self.workflow_custom_btn = QPushButton("커스텀")
+        self.workflow_custom_btn.setCheckable(True)
+        self.workflow_custom_btn.setEnabled(False) # 커스텀 워크플로우 로드 전까지 비활성화
+        self.workflow_custom_btn.setStyleSheet(DARK_STYLES['toggle_button'])
+
+        # 4. QButtonGroup으로 토글 버튼들을 그룹화하여 하나만 선택되도록 합니다.
+        self.workflow_toggle_group = QButtonGroup(self)
+        self.workflow_toggle_group.addButton(self.workflow_default_btn)
+        self.workflow_toggle_group.addButton(self.workflow_custom_btn)
+        self.workflow_toggle_group.setExclusive(True)
+
+        # 5. '불러오기' 버튼을 생성합니다.
+        self.workflow_load_btn = QPushButton("불러오기(이미지)")
+        self.workflow_load_btn.setStyleSheet(DARK_STYLES['secondary_button'])
+
+        # 6. 버튼들을 레이아웃에 추가합니다.
+        comfyui_workflow_layout.addWidget(self.workflow_default_btn, 1)
+        comfyui_workflow_layout.addWidget(self.workflow_custom_btn, 1)
+        comfyui_workflow_layout.addWidget(self.workflow_load_btn, 1)
+        
+        # 7. 버튼 컨테이너 위젯을 최종적으로 부모 레이아웃에 추가합니다.
+        self.comfyui_option_widget_layout.addWidget(self.comfyui_workflow_section)
 
         # 모드별 위젯 그룹 정리 (기존 코드 수정)
         self.naid_option_widgets = [
@@ -1254,6 +1279,9 @@ class ModernMainWindow(QMainWindow):
         self.image_window.load_prompt_to_main_ui.connect(self.set_positive_prompt)
         self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
         self.connect_checkbox_signals()
+        self.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
+        self.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
+
 
     def set_positive_prompt(self, prompt: str):
         """전달받은 프롬프트를 메인 UI의 프롬프트 입력창에 설정합니다."""
@@ -2001,6 +2029,161 @@ class ModernMainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ 버튼 상태 업데이트 오류: {e}")
 
+<<<<<<< Updated upstream
+=======
+    def set_initial_window_size(self):
+        """
+        사용자의 가용 화면 해상도를 기준으로 창의 초기 크기를 설정하고
+        화면 중앙에 배치합니다.
+        """
+        try:
+            # 사용자의 주 모니터에서 작업 표시줄을 제외한 가용 영역의 정보를 가져옵니다.
+            screen_geometry = QApplication.primaryScreen().availableGeometry()
+            
+            # 화면 너비와 높이의 85%를 초기 창 크기로 설정합니다.
+            initial_width = int(screen_geometry.width() * 0.85)
+            initial_height = int(screen_geometry.height() * 0.85)
+            
+            # 계산된 크기로 창의 크기를 조절합니다.
+            self.resize(initial_width, initial_height)
+            
+            # 창을 화면의 중앙으로 이동시킵니다.
+            self.move(screen_geometry.center() - self.rect().center())
+            
+            print(f"🖥️ 동적 창 크기 설정 완료: {initial_width}x{initial_height}")
+
+        except Exception as e:
+            print(f"⚠️ 동적 창 크기 설정 실패: {e}. 기본 크기(1280x720)로 설정합니다.")
+            # 오류 발생 시 안전을 위한 기본값 설정
+            self.resize(1280, 720)
+
+    def save_all_current_settings(self):
+        """현재 모든 설정을 저장하는 메서드"""
+        try:
+            current_mode = self.app_context.get_api_mode()
+            
+            # 버튼 상태 변경 (저장 중 표시)
+            self.save_settings_btn.setText("💾 저장 중...")
+            self.save_settings_btn.setEnabled(False)
+            
+            saved_items = []
+            failed_items = []
+            
+            # 1. 메인 생성 파라미터 저장
+            try:
+                self.generation_params_manager.save_mode_settings(current_mode)
+                saved_items.append("메인 생성 파라미터")
+            except Exception as e:
+                failed_items.append(f"메인 생성 파라미터: {str(e)}")
+            
+            # 2. 모든 ModeAware 모듈 설정 저장
+            if self.app_context and self.app_context.mode_manager:
+                try:
+                    self.app_context.mode_manager.save_all_current_mode()
+                    
+                    # 저장된 모듈 수 계산
+                    mode_aware_count = len(self.app_context.mode_manager.registered_modules)
+                    if mode_aware_count > 0:
+                        saved_items.append(f"모드 인식 모듈 ({mode_aware_count}개)")
+                    
+                except Exception as e:
+                    failed_items.append(f"모드 인식 모듈: {str(e)}")
+               
+            # 결과 메시지 생성
+            if saved_items and not failed_items:
+                # 모든 저장 성공
+                message = f"✅ 설정 저장 완료 ({current_mode} 모드)\n저장된 항목: {', '.join(saved_items)}"
+                self.status_bar.showMessage(f"✅ 모든 설정이 저장되었습니다 ({current_mode} 모드)", 4000)
+                
+            elif saved_items and failed_items:
+                # 일부 저장 성공, 일부 실패
+                message = f"⚠️ 설정 부분 저장 완료 ({current_mode} 모드)\n✅ 저장됨: {', '.join(saved_items)}\n❌ 실패: {', '.join(failed_items)}"
+                self.status_bar.showMessage(f"⚠️ 일부 설정 저장 실패", 4000)
+                
+            else:
+                # 모든 저장 실패
+                message = f"❌ 설정 저장 실패 ({current_mode} 모드)\n실패 항목: {', '.join(failed_items)}"
+                self.status_bar.showMessage("❌ 설정 저장 실패", 4000)
+            
+            print(message)
+            
+            # 성공한 항목이 있으면 토스트 메시지도 표시
+            if saved_items:
+                # QMessageBox로 간단한 알림 표시 (자동으로 사라지지 않음, 사용자가 확인 필요)
+                from PyQt6.QtWidgets import QMessageBox
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Information)
+                msg.setWindowTitle("설정 저장 완료")
+                msg.setText(f"현재 모드({current_mode})의 설정이 저장되었습니다.")
+                
+                details = f"저장된 항목:\n• " + "\n• ".join(saved_items)
+                if failed_items:
+                    details += f"\n\n실패한 항목:\n• " + "\n• ".join(failed_items)
+                msg.setDetailedText(details)
+                
+                # 자동으로 닫히도록 타이머 설정 (3초 후 자동 닫기)
+                from PyQt6.QtCore import QTimer
+                timer = QTimer()
+                timer.timeout.connect(msg.accept)
+                timer.setSingleShot(True)
+                timer.start(3000)  # 3초 후 자동 닫기
+                
+                msg.exec()
+            
+        except Exception as e:
+            error_message = f"❌ 설정 저장 중 예외 발생: {str(e)}"
+            print(error_message)
+            self.status_bar.showMessage("❌ 설정 저장 중 오류 발생", 4000)
+            
+        finally:
+            # 버튼 상태 복원
+            self.save_settings_btn.setText("💾 설정 저장")
+            self.save_settings_btn.setEnabled(True)
+
+    def _load_custom_workflow_from_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "ComfyUI 워크플로우 이미지 선택", "", "Image Files (*.png)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            from core.comfyui_utils import WorkflowValidationDialog
+            with Image.open(file_path) as img:
+                # ComfyUI는 'prompt'와 'workflow' 키에 JSON 문자열로 저장합니다.
+                metadata = img.info
+                if 'prompt' not in metadata:
+                    QMessageBox.warning(self, "오류", "선택한 이미지에서 ComfyUI 워크플로우 정보를 찾을 수 없습니다.")
+                    return
+
+                # 워크플로우 분석 및 검증
+                analysis_result = self.workflow_manager.analyze_workflow_for_ui(metadata)
+
+                # 검증 결과 팝업 표시
+                dialog = WorkflowValidationDialog(analysis_result, self)
+                dialog.exec()
+
+                # 검증 성공 시, 실제 워크플로우를 매니저에 로드
+                if analysis_result['success']:
+                    # 기존 load_workflow_from_metadata를 사용하여 워크플로우를 정식으로 로드
+                    self.workflow_manager.load_workflow_from_metadata(metadata)
+                    self.workflow_custom_btn.setEnabled(True)
+                    self.workflow_custom_btn.setChecked(True)
+                    self.status_bar.showMessage("✅ 커스텀 워크플로우가 활성화되었습니다.", 3000)
+
+        except Exception as e:
+            QMessageBox.critical(self, "파일 오류", f"이미지를 분석하는 중 오류가 발생했습니다:\n{e}")
+
+    # [신규] 워크플로우 타입 토글 시 호출될 메서드
+    def _on_workflow_type_changed(self):
+        if self.workflow_default_btn.isChecked():
+            self.workflow_manager.clear_user_workflow()
+            # 커스텀 워크플로우가 비워졌으므로 버튼을 다시 비활성화
+            self.workflow_custom_btn.setEnabled(False)
+            self.status_bar.showMessage("🔄 기본 워크플로우로 전환되었습니다.", 3000)
+
+>>>>>>> Stashed changes
 
 if __name__ == "__main__":
     # 기존 환경 설정들...

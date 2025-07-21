@@ -7,6 +7,7 @@ from core.wildcard_manager import WildcardManager
 from core.tag_data_manager import TagDataManager
 from core.prompt_context import PromptContext
 from core.mode_ware_manager import ModeAwareModuleManager
+from core.comfyui_workflow_manager import ComfyUIWorkflowManager
 import pandas as pd
 from datetime import datetime 
 from pathlib import Path       
@@ -26,6 +27,7 @@ class AppContext:
         self.tag_data_manager = tag_data_manager
         self.middle_section_controller: Optional['MiddleSectionController'] = None
         self.api_service = APIService(self)
+        self.comfyui_workflow_manager = ComfyUIWorkflowManager()
 
         # 🆕 API 모드 관리
         self.current_api_mode = "NAI"  # 기본값은 NAI
