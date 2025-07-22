@@ -1106,7 +1106,7 @@ class ModernMainWindow(QMainWindow):
                     
                     # 스텔스 모드: API 관리 탭이 없으면 임시로 생성
                     if not api_management:
-                        from ui.api_management_window import APIManagementWindow
+                        from tabs.api_management_window import APIManagementWindow
                         api_management = APIManagementWindow(self.app_context, self)
                     
                     if api_management and hasattr(api_management, 'webui_url_input'):
@@ -1195,7 +1195,7 @@ class ModernMainWindow(QMainWindow):
                     
                     # 스텔스 모드: API 관리 탭이 없으면 임시로 생성
                     if not api_management:
-                        from ui.api_management_window import APIManagementWindow
+                        from tabs.api_management_window import APIManagementWindow
                         api_management = APIManagementWindow(self.app_context, self)
                     
                     if api_management and hasattr(api_management, 'comfyui_url_input'):
@@ -1267,8 +1267,11 @@ class ModernMainWindow(QMainWindow):
                 self.open_search_management()
 
     def open_search_management(self):
-        if self.image_window and hasattr(self.image_window, 'add_api_management_tab'):
-            self.image_window.add_api_management_tab()
+        # ✅ RightView의 tab_controller를 통해 동적 탭 생성을 요청
+        if self.image_window and hasattr(self.image_window, 'tab_controller'):
+            self.image_window.tab_controller.add_tab_by_name(
+                'APIManagementTabModule' # ◀ 모듈의 클래스 이름을 문자열로 전달
+            )
             self.status_bar.showMessage("⚙️ API 관리 탭으로 이동했습니다.", 3000)
         else:
             self.status_bar.showMessage("⚠️ API 관리 탭을 열 수 없습니다.", 5000)
@@ -1706,9 +1709,13 @@ class ModernMainWindow(QMainWindow):
         if self.search_results.is_empty():
             return
             
-        # RightView에 심층 검색 탭 추가 요청
-        if self.image_window and hasattr(self.image_window, 'add_depth_search_tab'):
-            self.image_window.add_depth_search_tab(self.search_results, self)
+        # ✅ RightView의 tab_controller를 통해 동적 탭 생성을 요청
+        if self.image_window and hasattr(self.image_window, 'tab_controller'):
+            self.image_window.tab_controller.add_tab_by_name(
+                'DepthSearchTabModule', # ◀ 모듈의 클래스 이름을 문자열로 전달
+                search_results=self.search_results, 
+                main_window=self
+            )
 
     def on_depth_search_results_assigned(self, new_search_result: SearchResultModel):
         """심층 검색 탭에서 할당된 결과를 메인 UI에 반영"""

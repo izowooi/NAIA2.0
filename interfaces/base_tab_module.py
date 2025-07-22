@@ -1,12 +1,15 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, ABCMeta
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QObject
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.context import AppContext
 
-class BaseTabModule(ABC):
+class pyqtABCMeta(type(QObject), ABCMeta):
+    pass
+
+class BaseTabModule(QObject, ABC, metaclass=pyqtABCMeta):
     """오른쪽 패널의 탭으로 동적 로드될 모든 모듈의 기반 추상 클래스"""
     
     # 탭 간 통신을 위한 공통 시그널들
@@ -39,7 +42,7 @@ class BaseTabModule(ABC):
 
     def get_tab_type(self) -> str:
         """탭의 유형을 반환합니다 ('core', 'closable', 'permanent')"""
-        return 'core'  # 기본값: 핵심 탭 (닫을 수 없음)
+        return 'core'  # 기본값: 핵심 탭 (시작 시 로드, 닫을 수 없음)
 
     def can_close_tab(self) -> bool:
         """탭이 닫힐 수 있는지 여부를 반환합니다."""

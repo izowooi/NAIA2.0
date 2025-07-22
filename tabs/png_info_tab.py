@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PIL import Image, ImageQt, ImageGrab
 from PIL.PngImagePlugin import PngInfo
 from ui.theme import DARK_COLORS, DARK_STYLES
+from interfaces.base_tab_module import BaseTabModule
 import json
 import re
 import os
@@ -17,6 +18,29 @@ import urllib.request
 import tempfile
 import piexif
 import piexif.helper
+
+class PngInfoTabModule(BaseTabModule):
+    """'PNG Info' 탭을 동적으로 로드하기 위한 모듈 래퍼"""
+    
+    def __init__(self):
+        super().__init__()
+        self.png_info_widget: PngInfoTab = None
+
+    def get_tab_title(self) -> str:
+        return "📝 PNG Info"
+        
+    def get_tab_order(self) -> int:
+        return 3 # 탭 순서 정의
+
+    def create_widget(self, parent: QWidget) -> QWidget:
+        # 위젯이 아직 생성되지 않았을 때만 생성
+        if self.png_info_widget is None:
+            self.png_info_widget = PngInfoTab(parent)
+            
+            # AppContext가 주입된 후, 위젯에 필요한 시그널 연결 등을 수행할 수 있음
+            # 예: self.png_info_widget.parameters_extracted.connect(...)
+            
+        return self.png_info_widget
 
 # [신규] 비동기 이미지 다운로드를 위한 워커 클래스
 class ImageDownloader(QObject):
