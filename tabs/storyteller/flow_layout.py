@@ -1,6 +1,4 @@
-# PyQt6 FlowLayout Example
-# Copyright (C) 2013 Riverbank Computing Limited.
-# Adapted for PyQt6
+# tabs/storyteller/flow_layout.py
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt
 from PyQt6.QtWidgets import QLayout, QSizePolicy, QSpacerItem
@@ -67,16 +65,29 @@ class FlowLayout(QLayout):
         space_y = self.spacing() if self.v_spacing == -1 else self.v_spacing
 
         for item in self.item_list:
-            next_x = x + item.sizeHint().width() + space_x
-            if next_x - space_x > rect.right() and line_height > 0:
+            # ▼▼▼▼▼ [수정] x 좌표 계산 로직 수정 ▼▼▼▼▼
+            # 현재 아이템의 너비
+            item_width = item.sizeHint().width()
+
+            # 다음 아이템이 들어갈 x 좌표 계산
+            # 현재 줄의 맨 처음이 아니면(x != rect.x()) 간격을 추가
+            next_x = x + item_width
+            if x != rect.x():
+                next_x += space_x
+
+            # 다음 아이템이 경계를 벗어나면 줄바꿈
+            if next_x > rect.right() and line_height > 0:
                 x = rect.x()
                 y = y + line_height + space_y
                 line_height = 0
-            
+
             if not test_only:
                 item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
             
-            x = next_x
+            # 다음 아이템을 위해 x 좌표 업데이트
+            x += item_width + space_x
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
             line_height = max(line_height, item.sizeHint().height())
         
         return y + line_height - rect.y()

@@ -14,16 +14,14 @@ class StoryItemWidget(QFrame):
     """
     썸네일 이미지와 데이터를 JSON 파일 하나로 관리하는 위젯.
     """
-    def __init__(self, project_path: str, group_name: str, variable_name: str, parent=None):
+    def __init__(self, group_path: str, variable_name: str, parent_box=None, parent=None):
         super().__init__(parent)
-        self.project_path = project_path
-        self.group_name = group_name
+        self.group_path = group_path
         self.variable_name = variable_name
+        self.parent_box = parent_box # 부모 StoryBox 참조
         
-        # ▼▼▼▼▼ [수정] image_path 제거, json_path만 사용 ▼▼▼▼▼
-        self.base_path = Path(self.project_path) / self.group_name
+        self.base_path = Path(self.group_path)
         self.json_path = self.base_path / f"{self.variable_name}.json"
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         self.data = {}
         
@@ -31,7 +29,7 @@ class StoryItemWidget(QFrame):
         self.load_data()
 
     def init_ui(self):
-        # ... [UI 구성 코드는 이전과 동일] ...
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedSize(128, 160)
         self.setStyleSheet(f"""
             StoryItemWidget {{
@@ -53,6 +51,8 @@ class StoryItemWidget(QFrame):
         self.name_label = QLabel(self.variable_name)
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setStyleSheet(f"color: {DARK_COLORS['text_primary']}; font-size: 13px;")
+        self.thumbnail_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.name_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self.thumbnail_label)
         layout.addWidget(self.name_label)
 
@@ -112,15 +112,19 @@ class StoryItemWidget(QFrame):
         except Exception as e:
             print(f"Error saving data for {self.variable_name}: {e}")
 
+    def mousePressEvent(self, event: QMouseEvent):
+        # 클릭 시, 부모 StoryBox의 focused 시그널을 발생시켜 포커스를 요청
+        if self.parent_box:
+            self.parent_box.focused.emit(self.parent_box)
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event: QMouseEvent):
-        # ... [드래그앤드롭 로직은 이전과 동일] ...
         if event.buttons() == Qt.MouseButton.LeftButton:
             drag = QDrag(self)
             mime_data = QMimeData()
             drag_data = {
                 "source": "StoryItemWidget",
-                "project_path": self.project_path,
-                "group_name": self.group_name,
+                "group_path": self.group_path,
                 "variable_name": self.variable_name
             }
             mime_data.setText(json.dumps(drag_data))

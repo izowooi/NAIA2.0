@@ -238,36 +238,49 @@ class StorytellerTab(QWidget):
         self.left_panel_layout.addWidget(scroll_area)
 
     def _load_groups_from_path(self, path: Path, section_title: str):
+        is_global_section = (section_title == "Global")
         group_dirs = [d for d in path.iterdir() if d.is_dir()]
-        if not group_dirs and section_title == "Local":
+        
+        if not group_dirs and not is_global_section:
             (path / "characters").mkdir(exist_ok=True)
             group_dirs.append(path / "characters")
 
         if group_dirs:
-            title_label = QLabel(f"--- {section_title} ---")
+            title_label = QLabel(f"--- {section_title} Groups ---")
             title_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; margin-top: 10px;")
             self.story_box_layout.addWidget(title_label)
 
             for group_dir in sorted(group_dirs):
                 group_name = group_dir.name
-                box = StoryBox(title=group_name.capitalize(), variable_name=group_name, level='upper')
+                box = StoryBox(title=group_name.capitalize(), variable_name=group_name, level='upper', is_global=is_global_section)
                 box.expanded.connect(self._on_story_box_expanded)
                 box.focused.connect(self._on_story_box_focused)
                 box.subgroup_add_requested.connect(self._on_subgroup_add_requested)
-                box.collapse()
+                
+                # 하위 그룹 (LowerLevel) 및 아이템 스캔
                 subgroup_dirs = [d for d in group_dir.iterdir() if d.is_dir()]
                 for subgroup_dir in sorted(subgroup_dirs):
                     subgroup_name = subgroup_dir.name
-                    # ▼▼▼▼▼ [수정] parent_box 인자 전달 ▼▼▼▼▼
-                    sub_box = StoryBox(title=subgroup_name, variable_name=subgroup_name, level='lower', parent_box=box)
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                    sub_box = StoryBox(title=subgroup_name, variable_name=subgroup_name, level='lower', parent_box=box, is_global=is_global_section)
                     sub_box.expanded.connect(self._on_story_box_expanded)
                     sub_box.focused.connect(self._on_story_box_focused)
                     sub_box.collapsed.connect(self._on_story_box_collapsed)
+                    
+                    item_files = [f for f in subgroup_dir.iterdir() if f.is_file() and f.suffix == '.json']
+                    for item_file in item_files:
+                        variable_name = item_file.stem
+                        item_widget = StoryItemWidget(
+                            group_path=str(subgroup_dir), 
+                            variable_name=variable_name,
+                            parent_box=sub_box
+                        )
+                        sub_box.add_item(item_widget)
+
                     sub_box.collapse()
                     box.add_subgroup(sub_box)
                     self.story_boxes[f"{group_name}/{subgroup_name}"] = sub_box
                 
+                box.collapse()
                 self.story_box_layout.addWidget(box)
                 self.story_boxes[group_name] = box
 
@@ -578,6 +591,12 @@ class StorytellerTab(QWidget):
 
     def _on_story_box_focused(self, focused_box: StoryBox):
         """하나의 박스가 포커스되면 다른 박스의 포커스를 해제합니다."""
+        # ▼▼▼▼▼ [신규] 디버깅을 위한 로깅 추가 ▼▼▼▼▼
+        # print(f"DEBUG: 포커스 요청 - {focused_box.level} 레벨, {focused_box.variable_name}")
+        # if self.active_story_box:
+           #  print(f"DEBUG: 현재 활성화된 박스 - {self.active_story_box.level} 레벨, {self.active_story_box.variable_name}")
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         # 이전에 포커스된 박스가 있고, 지금 포커스된 박스와 다르다면 포커스를 해제합니다.
         if self.active_story_box and self.active_story_box is not focused_box:
             self.active_story_box.set_focused(False)
@@ -585,6 +604,7 @@ class StorytellerTab(QWidget):
         # 새로 포커스된 박스에 포커스를 설정하고 기록합니다.
         focused_box.set_focused(True)
         self.active_story_box = focused_box
+        
         if self.save_path_label:
             path_text = focused_box.variable_name
             if focused_box.level == 'lower' and focused_box.parent_box:
@@ -659,74 +679,56 @@ class StorytellerTab(QWidget):
 
     def _on_save_item_clicked(self):
         """'저장' 버튼 클릭 시 아이템을 생성하고 저장하는 전체 로직."""
-        # 1. 입력값 유효성 검사
+        # 1. 유효성 검사
         if not self.active_story_box:
             QMessageBox.warning(self, "오류", "아이템을 저장할 그룹 또는 하위 그룹을 먼저 선택(클릭)해주세요.")
             return
         if self.active_story_box.level == 'upper':
             QMessageBox.warning(self, "오류", "최상위 그룹에는 아이템을 직접 저장할 수 없습니다.\n하위 그룹을 선택하거나 생성해주세요.")
             return
-        
         variable_name = self.variable_name_input.text()
         if not variable_name:
             QMessageBox.warning(self, "오류", "저장할 아이템의 변수명을 입력해주세요.")
             return
-
-        # 2. 이미지 가져오기 및 처리
         source_pixmap = self.right_output_panel._pixmap
         if not source_pixmap or source_pixmap.isNull():
             QMessageBox.warning(self, "오류", "저장할 이미지가 없습니다. 먼저 이미지를 생성해주세요.")
             return
 
+        # 2. 이미지 처리
         try:
-            # QPixmap -> PIL Image 변환
             pil_image = Image.fromqpixmap(source_pixmap)
-            
-            # 중앙 75% 크롭
-            w, h = pil_image.size
-            crop_w, crop_h = int(w * 0.75), int(h * 0.75)
-            left = (w - crop_w) // 2
-            top = (h - crop_h) // 2
-            right = left + crop_w
-            bottom = top + crop_h
+            w, h = pil_image.size; crop_w, crop_h = int(w * 0.75), int(h * 0.75)
+            left, top = (w - crop_w) // 2, (h - crop_h) // 2
+            right, bottom = left + crop_w, top + crop_h
             cropped_image = pil_image.crop((left, top, right, bottom))
-
-            # 128x128 썸네일 생성
             cropped_image.thumbnail((128, 128), Image.Resampling.LANCZOS)
-            
-            # PIL Image -> QPixmap 변환
             thumbnail_pixmap = QPixmap.fromImage(ImageQt(cropped_image))
-
         except Exception as e:
             QMessageBox.critical(self, "오류", f"이미지 처리 중 오류가 발생했습니다: {e}")
             return
             
         # 3. StoryItemWidget 생성 및 저장
         group_box = self.active_story_box
-        group_name = f"{group_box.parent_box.variable_name}/{group_box.variable_name}"
+        parent_box = group_box.parent_box
         
-        item_widget = StoryItemWidget(
-            project_path=str(self.current_project_path),
-            group_name=group_name,
-            variable_name=variable_name
-        )
+        # 저장될 그룹의 전체 경로 결정
+        if parent_box.is_global:
+            group_path = self.global_dir / parent_box.variable_name / group_box.variable_name
+        else:
+            group_path = self.current_project_path / parent_box.variable_name / group_box.variable_name
+        
+        item_widget = StoryItemWidget(group_path=str(group_path), variable_name=variable_name)
         item_widget.thumbnail_label.setPixmap(thumbnail_pixmap)
-        
-        # 생성에 사용된 프롬프트 정보도 함께 저장
         item_widget.data = {
             "prefix": self.prefix_prompt_edit.toPlainText(),
             "positive": self.positive_prompt_edit.toPlainText(),
             "postfix": self.postfix_prompt_edit.toPlainText(),
             "negative": self.negative_prompt_edit.toPlainText(),
         }
-        
-        item_widget.save_data() # 파일로 저장
+        item_widget.save_data()
 
-        # 4. UI에 위젯 추가
+        # 4. UI에 위젯 추가 및 완료 처리
         group_box.add_item(item_widget)
-
-        self.save_settings()
-        
-        # 5. 완료 처리
         self.variable_name_input.clear()
         self.app_context.main_window.status_bar.showMessage(f"✅ 아이템 '{variable_name}' 저장 완료!", 3000)
