@@ -119,7 +119,7 @@ class GenerationController:
         self.generation_worker = None
         self.is_generating = False
         
-    def execute_generation_pipeline(self):
+    def execute_generation_pipeline(self, overrides: dict = None):
         """7단계 생성 파이프라인을 실행합니다."""
         # 이미 생성 중인 경우 중복 실행 방지
         if self.is_generating:
@@ -156,6 +156,10 @@ class GenerationController:
             for module in self.module_instances:
                 module_params = module.get_parameters()
                 if module_params: params.update(module_params)
+
+            if overrides:
+                print(f"🔄 Workshop 파라미터로 덮어쓰기: {list(overrides.keys())}")
+                params.update(overrides)
 
             is_valid, error_msg = self.validate_parameters(params)
             if not is_valid:

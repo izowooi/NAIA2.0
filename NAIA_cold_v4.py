@@ -1425,6 +1425,10 @@ class ModernMainWindow(QMainWindow):
     def update_ui_with_result(self, result: dict):
         """APIService의 결과를 받아 UI에 업데이트하고 히스토리에 추가"""
         try:
+            redirect_event = "generation_completed_for_redirect"
+            if redirect_event in self.app_context.subscribers and self.app_context.subscribers[redirect_event]:
+                self.app_context.publish(redirect_event, result)
+
             if not self.image_window:
                 print("❌ image_window가 None입니다.")
                 return
