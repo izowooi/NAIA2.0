@@ -486,6 +486,24 @@ DARK_STYLES = {
             color: #888888;
         }}
     """,
+    'dark_text_edit' : f"""
+    /* QTextEdit의 기본 스타일은 유지 (테두리, 패딩 등) */
+    QTextEdit {{
+        background-color: transparent; /* 전체 배경은 투명하게 */
+        border: 1px solid {DARK_COLORS['border']};
+        border-radius: 4px;
+        padding: 8px;
+        color: {DARK_COLORS['text_primary']};
+        font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+        font-size: 22px;
+    }}
+    
+    /* 실제 텍스트가 보이는 내부 영역의 배경색만 지정 */
+    QTextEdit QAbstractScrollArea {{
+        background-color: {DARK_COLORS['bg_primary']};
+        border: none; /* 내부 영역의 테두리는 제거 */
+    }}
+"""
 }
 
 CUSTOM = {
