@@ -12,6 +12,7 @@ class ComfyUIWorkflowManager:
         self.base_workflow = self._load_base_workflow()
         self.custom_workflows = {}
         self.user_workflow: Optional[Dict[str, Any]] = None
+        self.user_workflow_ui: Optional[Dict[str, Any]] = None # [추가] UI 형식 워크플로우 저장
         self.user_workflow_node_map: Optional[Dict[str, str]] = None # 검증 후 생성된 노드 맵
 
         
@@ -160,6 +161,7 @@ class ComfyUIWorkflowManager:
     def clear_user_workflow(self):
         """저장된 사용자 워크플로우를 제거하고 기본 워크플로우로 되돌립니다."""
         self.user_workflow = None
+        self.user_workflow_ui = None
         self.user_workflow_node_map = None
         print("🔄 사용자 워크플로우가 초기화되었습니다. 기본 워크플로우를 사용합니다.")
 
@@ -188,8 +190,14 @@ class ComfyUIWorkflowManager:
                 self.clear_user_workflow() # 유효하지 않으면 초기화
                 return False
 
-            # 성공 시, 워크플로우와 원본 파라미터(prompt_api)를 함께 저장
-            self.user_workflow = prompt_api 
+            # [핵심] 워크플로우 형식에 따라 저장
+            if 'nodes' in workflow: # UI 형식
+                self.user_workflow_ui = workflow
+                self.user_workflow = prompt_api # API 형식
+            else: # API 형식
+                self.user_workflow = workflow
+                self.user_workflow_ui = None # UI 형식 정보 없음
+
             self.user_workflow_node_map = node_map
             
             print("✅ 사용자 워크플로우를 성공적으로 로드하고 검증했습니다.")
@@ -230,41 +238,56 @@ class ComfyUIWorkflowManager:
             return False, {"error": "분석할 노드 데이터를 찾을 수 없습니다."}
 
         node_map = {}
+        # [수정] KSampler 외에 다른 커스텀 샘플러도 인식하도록 리스트 사용
+        recognized_sampler_types = ["KSampler", "SamplerCustom"]
+        
         required_nodes = {
             "CheckpointLoaderSimple": "checkpoint_loader",
             "CLIPTextEncode": "prompt",
-            "KSampler": "sampler",
+            # "KSampler": "sampler", # 특정 샘플러 대신 리스트 사용
             "EmptyLatentImage": "latent_image",
             "VAEDecode": "vae_decode",
             "SaveImage": "save_image",
             "PreviewImage": "preview_image",
-            "ModelSamplingDiscrete" : "model_sampler"
+            "ModelSamplingDiscrete" : "model_sampler",
+            "AlignYourStepsScheduler": "ays_scheduler" # [추가]
         }
         
         found_nodes = {key: [] for key in required_nodes.keys()}
+        found_sampler_nodes = []
 
         # --- 2. 노드 순회 및 분류 ---
         for node_id, node_data in nodes_by_id.items():
-            # [수정] UI 형식('type')과 API 형식('class_type')의 키 이름을 모두 지원
             class_type = node_data.get("type") or node_data.get("class_type")
+            
             if class_type in required_nodes:
                 found_nodes[class_type].append(node_id)
-        
-        # --- 3. 필수 노드 존재 여부 확인 (기존 로직과 유사) ---
+            
+            # [핵심 수정] 인식 가능한 샘플러 타입인지 확인
+            if class_type in recognized_sampler_types:
+                found_sampler_nodes.append(node_id)
+
+        # --- 3. 필수 노드 존재 여부 확인 ---
         if not found_nodes["CheckpointLoaderSimple"]: return False, {"error": "CheckpointLoaderSimple 노드를 찾을 수 없습니다."}
         if len(found_nodes["CLIPTextEncode"]) < 2: return False, {"error": "CLIPTextEncode 노드가 2개 미만입니다 (Prompt/Negative)."}
-        if not found_nodes["KSampler"]: return False, {"error": "KSampler 노드를 찾을 수 없습니다."}
+        
+        # [핵심 수정] KSampler 대신 인식된 샘플러가 있는지 확인
+        if not found_sampler_nodes:
+            return False, {"error": f"필수 샘플러 노드({'/'.join(recognized_sampler_types)})를 찾을 수 없습니다."}
+            
         if not found_nodes["ModelSamplingDiscrete"]: return False, {"error": "ModelSamplingDiscrete 노드를 찾을 수 없습니다."}
+        
         node_map["checkpoint_loader"] = found_nodes["CheckpointLoaderSimple"][0]
         
-        # --- 4. KSampler에 연결된 프롬프트 노드 찾기 (형식에 따라 분기) ---
-        ksampler_node_id = found_nodes["KSampler"][0]
-        ksampler_inputs = nodes_by_id[ksampler_node_id]["inputs"]
+        # --- 4. 샘플러에 연결된 프롬프트 노드 찾기 ---
+        # [핵심 수정] 발견된 첫 번째 샘플러를 기준으로 삼음
+        sampler_node_id = found_sampler_nodes[0]
+        sampler_inputs = nodes_by_id[sampler_node_id]["inputs"]
         
         if is_ui_format:
             # UI 형식의 링크 처리
-            positive_link_id = next((slot.get("link") for slot in ksampler_inputs if slot.get("name") == "positive"), None)
-            negative_link_id = next((slot.get("link") for slot in ksampler_inputs if slot.get("name") == "negative"), None)
+            positive_link_id = next((slot.get("link") for slot in sampler_inputs if slot.get("name") == "positive"), None)
+            negative_link_id = next((slot.get("link") for slot in sampler_inputs if slot.get("name") == "negative"), None)
             
             links_by_id = {link[0]: link for link in links_data}
             if positive_link_id in links_by_id:
@@ -273,17 +296,21 @@ class ComfyUIWorkflowManager:
                 node_map["negative_prompt"] = str(links_by_id[negative_link_id][1])
         else:
             # API/기본 형식의 링크 처리 (더 직접적)
-            if isinstance(ksampler_inputs.get("positive"), list):
-                node_map["positive_prompt"] = ksampler_inputs["positive"][0]
-            if isinstance(ksampler_inputs.get("negative"), list):
-                node_map["negative_prompt"] = ksampler_inputs["negative"][0]
+            if isinstance(sampler_inputs.get("positive"), list):
+                node_map["positive_prompt"] = sampler_inputs["positive"][0]
+            if isinstance(sampler_inputs.get("negative"), list):
+                node_map["negative_prompt"] = sampler_inputs["negative"][0]
 
         if "positive_prompt" not in node_map or "negative_prompt" not in node_map:
-            return False, {"error": "KSampler에 연결된 Prompt/Negative 노드를 특정할 수 없습니다."}
+            return False, {"error": "샘플러에 연결된 Prompt/Negative 노드를 특정할 수 없습니다."}
 
-        node_map["sampler"] = ksampler_node_id
+        node_map["sampler"] = sampler_node_id
         if found_nodes["EmptyLatentImage"]:
             node_map["latent_image"] = found_nodes["EmptyLatentImage"][0]
+
+        # [추가] AlignYourStepsScheduler 노드 ID 저장
+        if found_nodes.get("AlignYourStepsScheduler"):
+            node_map["ays_scheduler"] = found_nodes["AlignYourStepsScheduler"][0]
 
         node_map["model_sampler"] = found_nodes["ModelSamplingDiscrete"][0]
         
@@ -339,6 +366,7 @@ class ComfyUIWorkflowManager:
         if self.user_workflow and self.user_workflow_node_map:
             workflow = copy.deepcopy(self.user_workflow)
             node_map = self.user_workflow_node_map
+            workflow_ui = copy.deepcopy(self.user_workflow_ui)
         else:
             # 기본 워크플로우 사용 시, 맵을 즉석에서 생성
             is_valid, node_map = self.validate_and_map_workflow(self.base_workflow)
@@ -346,6 +374,7 @@ class ComfyUIWorkflowManager:
                 print("❌ 기본 워크플로우가 유효하지 않습니다.")
                 return None
             workflow = copy.deepcopy(self.base_workflow)
+            workflow_ui = None # 기본 워크플로우는 UI 형식이 없음
 
         try:
             # 1. 모델 설정
@@ -355,20 +384,81 @@ class ComfyUIWorkflowManager:
             workflow[node_map["positive_prompt"]]["inputs"]["text"] = params['input']
             workflow[node_map["negative_prompt"]]["inputs"]["text"] = params['negative_prompt']
 
-            # 3. KSampler 설정
-            sampler_node = workflow[node_map["sampler"]]["inputs"]
-            sampler_node["seed"] = params['seed'] if params['seed'] != -1 else self._generate_random_seed()
-            sampler_node["steps"] = params['steps']
-            sampler_node["cfg"] = params['cfg_scale']
-            sampler_node["sampler_name"] = params['sampler']
-            sampler_node["scheduler"] = params['scheduler']
+            # 3. 샘플러 설정 (KSampler와 SamplerCustom 분기 처리)
+            sampler_node_id = node_map["sampler"]
+            sampler_node_api = workflow[sampler_node_id]
+            
+            # UI 형식의 노드 찾기 (workflow_ui가 있을 경우)
+            sampler_node_ui = None
+            if workflow_ui and 'nodes' in workflow_ui:
+                for node in workflow_ui['nodes']:
+                    if str(node.get('id')) == sampler_node_id:
+                        sampler_node_ui = node
+                        break
+            
+            sampler_class_type = sampler_node_api.get("class_type")
 
-            # 4. 해상도 설정
+            if sampler_class_type == "KSampler":
+                sampler_inputs = sampler_node_api["inputs"]
+                sampler_inputs["seed"] = params['seed'] if params['seed'] != -1 else self._generate_random_seed()
+                sampler_inputs["steps"] = params['steps']
+                sampler_inputs["cfg"] = params['cfg_scale']
+                sampler_inputs["sampler_name"] = params['sampler']
+                sampler_inputs["scheduler"] = params['scheduler']
+
+            elif sampler_class_type == "SamplerCustom" and sampler_node_ui:
+                # SamplerCustom은 widgets_values를 통해 파라미터를 제어
+                # [add_noise, seed, control_after_generate, cfg]
+                widgets = sampler_node_ui.get('widgets_values', [])
+                if len(widgets) >= 4:
+                    original_seed = widgets[1]
+                    original_cfg = widgets[3]
+                    
+                    new_seed = params['seed'] if params['seed'] != -1 else self._generate_random_seed()
+                    new_cfg = params['cfg_scale']
+
+                    # API 워크플로우에서 원래 값들을 찾아 새 값으로 교체
+                    # 이 방식은 input의 키 이름을 몰라도 값을 기반으로 교체 가능
+                    for key, value in sampler_node_api["inputs"].items():
+                        if value == original_seed:
+                            sampler_node_api["inputs"][key] = new_seed
+                            print(f"✅ SamplerCustom 시드 변경: {original_seed} -> {new_seed}")
+                        elif value == original_cfg:
+                            sampler_node_api["inputs"][key] = new_cfg
+                            print(f"✅ SamplerCustom CFG 변경: {original_cfg} -> {new_cfg}")
+                else:
+                    print(f"⚠️ SamplerCustom (ID: {sampler_node_id})의 위젯 값이 예상과 다릅니다.")
+
+            # 4. AlignYourStepsScheduler의 Steps 설정 (존재하는 경우)
+            if "ays_scheduler" in node_map:
+                ays_node_id = node_map["ays_scheduler"]
+                ays_node_api = workflow[ays_node_id]
+                
+                ays_node_ui = None
+                if workflow_ui and 'nodes' in workflow_ui:
+                    for node in workflow_ui['nodes']:
+                        if str(node.get('id')) == ays_node_id:
+                            ays_node_ui = node
+                            break
+                
+                if ays_node_ui:
+                    widgets = ays_node_ui.get('widgets_values', [])
+                    if len(widgets) >= 2:
+                        original_steps = widgets[1]
+                        new_steps = params['steps']
+                        
+                        for key, value in ays_node_api["inputs"].items():
+                            if value == original_steps:
+                                ays_node_api["inputs"][key] = new_steps
+                                print(f"✅ AlignYourStepsScheduler Steps 변경: {original_steps} -> {new_steps}")
+                                break # 첫 번째 일치 항목만 변경
+
+            # 5. 해상도 설정
             if "latent_image" in node_map:
                  workflow[node_map["latent_image"]]["inputs"]["width"] = params['width']
                  workflow[node_map["latent_image"]]["inputs"]["height"] = params['height']
 
-            # 5. ModelSamplingDiscrete 설정 추가 ---
+            # 6. ModelSamplingDiscrete 설정 추가 ---
             if "model_sampler" in node_map:
                 model_sampler_node = workflow[node_map["model_sampler"]]["inputs"]
                 
@@ -456,68 +546,76 @@ class ComfyUIWorkflowManager:
             "custom": [],
             "error_message": ""
         }
+        # [수정] KSampler 외 커스텀 샘플러 지원
+        recognized_sampler_types = {"KSampler", "SamplerCustom"}
         required_node_types = {
-            "CheckpointLoaderSimple", "CLIPTextEncode", "KSampler",
+            "CheckpointLoaderSimple", "CLIPTextEncode", 
             "EmptyLatentImage", "VAEDecode", "SaveImage", "PreviewImage"
         }
         
         try:
             workflow_str = metadata.get('workflow') or metadata.get('workflow_api')
             prompt_str = metadata.get('prompt')
-            workflow_data = None
+            
+            all_nodes = []
+            is_ui_format = False
 
-            # 1. 먼저 'workflow' (UI 형식) 파싱 시도
+            # 1. 워크플로우 데이터 소스 결정 및 노드 리스트 생성
             if workflow_str:
                 parsed_workflow = json.loads(workflow_str)
                 if 'nodes' in parsed_workflow and isinstance(parsed_workflow['nodes'], list):
-                    # 'nodes' 리스트를 순회하며 class_type을 'type' 키에서 찾음
                     all_nodes = parsed_workflow['nodes']
-                    
-                    found_required = set()
-                    for node in all_nodes:
-                        class_type = node.get("type")
-                        if class_type in required_node_types:
-                            result['required'].append(("PASS", class_type))
-                            found_required.add(class_type)
-                        else:
-                            result['custom'].append(class_type)
-                    
-                    # 필수 노드 검증
-                    if "SaveImage" in found_required or "PreviewImage" in found_required:
-                        required_node_types.discard("SaveImage")
-                        required_node_types.discard("PreviewImage")
-                    
-                    missing_nodes = required_node_types - found_required
-                    for missing in missing_nodes:
-                        result['required'].append(("FAIL", missing))
-                    
-                    result['success'] = not bool(missing_nodes)
-                    return result
-
-            # 2. 'workflow'가 없거나 형식이 다르면 'prompt' (API 형식) 파싱 시도
-            if prompt_str:
-                workflow_data = json.loads(prompt_str)
+                    is_ui_format = True
             
-            if not workflow_data:
+            if not all_nodes and prompt_str:
+                parsed_prompt = json.loads(prompt_str)
+                # API 형식의 딕셔너리를 UI 형식의 리스트로 변환
+                all_nodes = list(parsed_prompt.values())
+                is_ui_format = False
+
+            if not all_nodes:
                 result['error_message'] = "분석할 워크플로우 데이터를 찾을 수 없습니다."
                 return result
 
-            # 'prompt' (API 형식) 데이터 분석
+            # 2. 노드 분석
             found_required = set()
-            for node in workflow_data.values():
-                class_type = node.get("class_type")
+            found_sampler = None
+            
+            # class_type 키 이름 결정
+            type_key = "type" if is_ui_format else "class_type"
+
+            for node in all_nodes:
+                class_type = node.get(type_key)
                 if class_type in required_node_types:
                     result['required'].append(("PASS", class_type))
                     found_required.add(class_type)
+                elif class_type in recognized_sampler_types:
+                    # 여러 샘플러가 있을 경우 첫 번째 것만 인정
+                    if not found_sampler:
+                        found_sampler = class_type
                 else:
                     result['custom'].append(class_type)
-            
-            # 필수 노드 검증
+
+            # 3. 최종 유효성 검사
+            # SaveImage 또는 PreviewImage 둘 중 하나만 있으면 됨
             if "SaveImage" in found_required or "PreviewImage" in found_required:
                 required_node_types.discard("SaveImage")
                 required_node_types.discard("PreviewImage")
 
             missing_nodes = required_node_types - found_required
+            
+            # 샘플러 노드 검증
+            if found_sampler:
+                result['required'].append(("PASS", found_sampler))
+            else:
+                result['required'].append(("FAIL", " / ".join(recognized_sampler_types)))
+                result['success'] = False
+                # 샘플러가 없으면 더 이상 진행하지 않고 결과 반환
+                for missing in missing_nodes:
+                    result['required'].append(("FAIL", missing))
+                return result
+
+            # 나머지 필수 노드 검증
             for missing in missing_nodes:
                 result['required'].append(("FAIL", missing))
             
