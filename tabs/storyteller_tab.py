@@ -1,6 +1,6 @@
 import os, json
 from pathlib import Path
-import fnmatch
+import fnmatch, shutil
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QTabWidget, 
     QScrollArea, QLabel, QFrame, QTextEdit, QPushButton, QLineEdit, QMessageBox, QSizePolicy
@@ -14,7 +14,9 @@ from interfaces.base_tab_module import BaseTabModule
 from ui.theme import DARK_STYLES, CUSTOM, DARK_COLORS
 from tabs.storyteller.story_box import StoryBox
 from tabs.storyteller.story_item_widget import StoryItemWidget
-from tabs.storyteller.custom_dialogs import CustomInputDialog
+from tabs.storyteller.custom_dialogs import CustomInputDialog, ConfirmationDialog, style_qmessagebox
+from tabs.storyteller.item_editor import ItemEditorWidget
+from tabs.storyteller.testbench_widget import TestbenchWidget
 
 class StableImageWidget(QWidget):
     """
@@ -252,20 +254,20 @@ class StorytellerTab(QWidget):
 
             for group_dir in sorted(group_dirs):
                 group_name = group_dir.name
-                box = StoryBox(title=group_name.capitalize(), variable_name=group_name, level='upper', is_global=is_global_section)
+                box = StoryBox(title=group_name.capitalize(), variable_name=group_name, box_path=str(group_dir), level='upper', is_global=is_global_section)
                 box.expanded.connect(self._on_story_box_expanded)
                 box.focused.connect(self._on_story_box_focused)
                 box.subgroup_add_requested.connect(self._on_subgroup_add_requested)
-                
+                box.delete_requested.connect(self._on_story_box_delete_requested)
                 # 하위 그룹 (LowerLevel) 및 아이템 스캔
                 subgroup_dirs = [d for d in group_dir.iterdir() if d.is_dir()]
                 for subgroup_dir in sorted(subgroup_dirs):
                     subgroup_name = subgroup_dir.name
-                    sub_box = StoryBox(title=subgroup_name, variable_name=subgroup_name, level='lower', parent_box=box, is_global=is_global_section)
+                    sub_box = StoryBox(title=subgroup_name, variable_name=subgroup_name, box_path=str(subgroup_dir), level='lower', parent_box=box, is_global=is_global_section)
                     sub_box.expanded.connect(self._on_story_box_expanded)
                     sub_box.focused.connect(self._on_story_box_focused)
                     sub_box.collapsed.connect(self._on_story_box_collapsed)
-                    
+                    sub_box.delete_requested.connect(self._on_story_box_delete_requested)
                     item_files = [f for f in subgroup_dir.iterdir() if f.is_file() and f.suffix == '.json']
                     for item_file in item_files:
                         variable_name = item_file.stem
@@ -274,6 +276,7 @@ class StorytellerTab(QWidget):
                             variable_name=variable_name,
                             parent_box=sub_box
                         )
+                        item_widget.edit_requested.connect(self._on_item_edit_requested)
                         sub_box.add_item(item_widget)
 
                     sub_box.collapse()
@@ -283,6 +286,14 @@ class StorytellerTab(QWidget):
                 box.collapse()
                 self.story_box_layout.addWidget(box)
                 self.story_boxes[group_name] = box
+
+    def find_item_widget(self, group_path: str, variable_name: str) -> StoryItemWidget | None:
+        """전체 StoryBox 목록을 탐색하여 요청된 StoryItemWidget을 찾습니다."""
+        for box in self.story_boxes.values():
+            # box_path가 문자열로 저장되어 있으므로 Path 객체로 비교
+            if box.level == 'lower' and Path(box.box_path) == Path(group_path):
+                return box.items.get(variable_name)
+        return None
 
     def _on_exit_project_clicked(self):
         """프로젝트를 닫고 프로젝트 선택 화면으로 돌아갑니다."""
@@ -300,99 +311,101 @@ class StorytellerTab(QWidget):
         """상단 컨트롤 패널의 '그룹 추가' 버튼 클릭 시 호출됩니다."""
         if not self.current_project_path: return
 
-        # ▼▼▼▼▼ 수정된 부분: 스타일시트를 적용하는 방식으로 변경 ▼▼▼▼▼
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("그룹 저장 위치 선택")
         msg_box.setText("새로운 그룹을 어디에 추가하시겠습니까?")
-        
-        # 스타일시트를 통해 전체적인 폰트 색상 및 배경을 지정합니다.
-        msg_box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: {DARK_COLORS['bg_secondary']};
-            }}
-            QLabel {{
-                color: {DARK_COLORS['text_primary']};
-                font-size: 14px;
-            }}
-            QPushButton {{
-                background-color: {DARK_COLORS['accent_blue']};
-                color: white;
-                font-weight: bold;
-                padding: 8px 16px;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {DARK_COLORS['accent_blue_hover']};
-            }}
-        """)
-
+        style_qmessagebox(msg_box)
         local_button = msg_box.addButton("Local (현재 프로젝트)", QMessageBox.ButtonRole.YesRole)
         global_button = msg_box.addButton("Global (모든 프로젝트)", QMessageBox.ButtonRole.NoRole)
         msg_box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
         msg_box.exec()
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
+        
         clicked_button = msg_box.clickedButton()
-        if clicked_button == local_button:
-            target_path = self.current_project_path
-        elif clicked_button == global_button:
-            target_path = self.global_dir
-        else:
-            return
-
+        if clicked_button == local_button: target_path = self.current_project_path
+        elif clicked_button == global_button: target_path = self.global_dir
+        else: return
+        
         text, ok = CustomInputDialog.getText(self, '최상위 그룹 추가', '새 그룹의 이름을 입력하세요:')
         if ok and text:
             try:
                 new_group_path = target_path / text
-                if new_group_path.exists():
-                    raise FileExistsError
-                
+                if new_group_path.exists(): raise FileExistsError
                 new_group_path.mkdir()
 
-                box = StoryBox(title=text.capitalize(), variable_name=text, level='upper')
-                box.subgroup_add_requested.connect(self._on_subgroup_add_requested)
+                box = StoryBox(
+                    title=text.capitalize(), 
+                    variable_name=text, 
+                    box_path=str(new_group_path),
+                    level='upper', 
+                    is_global=(target_path == self.global_dir)
+                )
                 
-                # TODO: Local/Global 섹션을 구분하여 올바른 위치에 위젯 추가 필요
+                # ▼▼▼▼▼ [수정] 누락된 시그널 연결 추가 ▼▼▼▼▼
+                box.expanded.connect(self._on_story_box_expanded)
+                box.focused.connect(self._on_story_box_focused)
+                box.collapsed.connect(self._on_story_box_collapsed)
+                box.subgroup_add_requested.connect(self._on_subgroup_add_requested)
+                box.delete_requested.connect(self._on_story_box_delete_requested)
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                
                 self.story_box_layout.addWidget(box)
                 self.story_boxes[text] = box
-                QMessageBox.information(self, "성공", f"그룹 '{text}'을(를) 추가했습니다.")
+                
+                info_box = QMessageBox(self); info_box.setIcon(QMessageBox.Icon.Information)
+                info_box.setWindowTitle("성공"); info_box.setText(f"그룹 '{text}'을(를) 추가했습니다.")
+                style_qmessagebox(info_box); info_box.exec()
 
             except FileExistsError:
-                QMessageBox.warning(self, "오류", f"이미 '{text}' 이름의 그룹이 해당 위치에 존재합니다.")
+                warn_box = QMessageBox(self); warn_box.setIcon(QMessageBox.Icon.Warning)
+                warn_box.setWindowTitle("오류"); warn_box.setText(f"이미 '{text}' 이름의 그룹이 해당 위치에 존재합니다.")
+                style_qmessagebox(warn_box); warn_box.exec()
             except Exception as e:
-                QMessageBox.critical(self, "오류", f"그룹 추가 중 오류 발생: {e}")
+                crit_box = QMessageBox(self); crit_box.setIcon(QMessageBox.Icon.Critical)
+                crit_box.setWindowTitle("오류"); crit_box.setText(f"그룹 추가 중 오류 발생: {e}")
+                style_qmessagebox(crit_box); crit_box.exec()
     
     def _on_subgroup_add_requested(self, parent_group_name, new_group_name):
         """StoryBox에서 받은 하위 그룹 추가 요청을 처리합니다."""
-        if not self.current_project_path:
-            QMessageBox.critical(self, "오류", "현재 활성화된 프로젝트가 없습니다.")
-            return
-
+        if not self.current_project_path: return
         try:
-            # 1. 실제 하위 폴더 생성 (self.current_project_path 사용)
-            new_group_path = self.current_project_path / parent_group_name / new_group_name
+            parent_box = self.story_boxes.get(parent_group_name)
+            if not parent_box: raise ValueError(f"부모 그룹 '{parent_group_name}'을 찾을 수 없습니다.")
+            
+            parent_path = Path(parent_box.box_path)
+            new_group_path = parent_path / new_group_name
             new_group_path.mkdir(exist_ok=False)
 
-            # 2. UI에 LowerLevel StoryBox 추가
-            parent_box = self.story_boxes.get(parent_group_name)
-            if parent_box:
-                sub_box = StoryBox(title=new_group_name, variable_name=new_group_name, level='lower')
-                parent_box.add_subgroup(sub_box)
-                self.story_boxes[f"{parent_group_name}/{new_group_name}"] = sub_box
-                QMessageBox.information(self, "성공", f"하위 그룹 '{new_group_name}'을(를) 추가했습니다.")
-            else:
-                raise ValueError(f"부모 그룹 '{parent_group_name}'을 찾을 수 없습니다.")
+            sub_box = StoryBox(
+                title=new_group_name, 
+                variable_name=new_group_name, 
+                box_path=str(new_group_path),
+                level='lower', 
+                parent_box=parent_box, 
+                is_global=parent_box.is_global
+            )
+            
+            # ▼▼▼▼▼ [수정] 누락된 시그널 연결 추가 ▼▼▼▼▼
+            sub_box.expanded.connect(self._on_story_box_expanded)
+            sub_box.focused.connect(self._on_story_box_focused)
+            sub_box.collapsed.connect(self._on_story_box_collapsed)
+            sub_box.delete_requested.connect(self._on_story_box_delete_requested)
+
+            parent_box.add_subgroup(sub_box)
+            self.story_boxes[f"{parent_group_name}/{new_group_name}"] = sub_box
+            
+            info_box = QMessageBox(self); info_box.setIcon(QMessageBox.Icon.Information)
+            info_box.setWindowTitle("성공"); info_box.setText(f"하위 그룹 '{new_group_name}'을(를) 추가했습니다.")
+            style_qmessagebox(info_box); info_box.exec()
 
         except FileExistsError:
-            QMessageBox.warning(self, "오류", f"이미 '{new_group_name}' 이름의 하위 그룹이 존재합니다.")
+            warn_box = QMessageBox(self); warn_box.setIcon(QMessageBox.Icon.Warning)
+            warn_box.setWindowTitle("오류"); warn_box.setText(f"이미 '{new_group_name}' 이름의 하위 그룹이 존재합니다.")
+            style_qmessagebox(warn_box); warn_box.exec()
         except Exception as e:
-            QMessageBox.critical(self, "오류", f"하위 그룹 추가 중 오류 발생: {e}")
-            print(f"하위 그룹 추가 중 오류: {e}")
-    
-    # ... [나머지 메서드들은 이전과 동일] ...
+            crit_box = QMessageBox(self); crit_box.setIcon(QMessageBox.Icon.Critical)
+            crit_box.setWindowTitle("오류"); crit_box.setText(f"하위 그룹 추가 중 오류 발생: {e}")
+            style_qmessagebox(crit_box); crit_box.exec()
+
     def _create_right_panel(self) -> QWidget:
         tab_widget = QTabWidget()
         tab_widget.setStyleSheet(DARK_STYLES['dark_tabs'])
@@ -411,6 +424,13 @@ class StorytellerTab(QWidget):
         workshop_widget = QWidget()
         main_v_layout = QVBoxLayout(workshop_widget)
         main_v_layout.setContentsMargins(0, 8, 0, 0)
+        self.item_editor = ItemEditorWidget(self)
+        self.item_editor.hide() # 기본적으로 숨김
+        self.item_editor.item_saved.connect(self._on_item_saved)
+        self.item_editor.item_deleted.connect(self._on_item_deleted)
+        self.item_editor.regeneration_requested.connect(self._on_item_regeneration_requested)
+        self.item_editor.assign_to_workshop_requested.connect(self._on_assign_to_workshop_requested)
+        main_v_layout.addWidget(self.item_editor)
         v_splitter = QSplitter(Qt.Orientation.Vertical)
         v_splitter.setStyleSheet(CUSTOM["main_splitter"])
         top_panel = QWidget()
@@ -442,6 +462,11 @@ class StorytellerTab(QWidget):
         bottom_panel.setStyleSheet(DARK_STYLES['compact_card'])
         bottom_layout = QVBoxLayout(bottom_panel)
         bottom_layout.setSpacing(10)
+
+        self.testbench = TestbenchWidget(storyteller_tab=self)
+        self.testbench.setMaximumHeight(180) # 아이템 한 줄 + 약간의 여유 높이
+        bottom_layout.addWidget(self.testbench)
+
         # --- 고정 프롬프트 영역 ---
         prompt_panel_layout = QHBoxLayout()
         
@@ -477,8 +502,8 @@ class StorytellerTab(QWidget):
 
         # --- 저장 버튼 및 경로 표시 영역 ---
         save_panel = QFrame()
-        save_panel.setFixedHeight(100)
         save_panel_layout = QHBoxLayout(save_panel)
+        save_panel_layout.setContentsMargins(0, 0, 0, 0)
         
         save_button = QPushButton("💾 저장")
         save_button.setStyleSheet(DARK_STYLES['secondary_button'])
@@ -512,9 +537,6 @@ class StorytellerTab(QWidget):
     def _on_workshop_generate_clicked(self):
         self.save_settings()
         positive_prompt = self.positive_prompt_edit.toPlainText().strip()
-        if not positive_prompt:
-            self.app_context.main_window.status_bar.showMessage("⚠️ Positive Prompt를 입력해주세요.", 3000)
-            return
         try:
             char_module = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
             if char_module and char_module.activate_checkbox.isChecked():
@@ -523,27 +545,329 @@ class StorytellerTab(QWidget):
                 self.app_context.main_window.status_bar.showMessage("캐릭터 모듈이 임시 비활성화되었습니다.", 2000)
         except Exception as e:
             print(f"⚠️ 캐릭터 모듈 비활성화 실패: {e}")
+        
+        # === Positive Prompt 구성 ===
         prompt_parts = [
             self.prefix_prompt_edit.toPlainText().strip(),
             positive_prompt.strip(),
             self.postfix_prompt_edit.toPlainText().strip()
         ]
+        
+        # TestBench 아이템들 체크
+        testbench_items = self.testbench.get_all_cloned_items()
+        character_items = []  # 캐릭터 아이템들
+        regular_items = []    # 일반 아이템들
+        num_of_boy = 0
+        num_of_girl = 0
+        num_of_other = 0
+        
+        if testbench_items:
+            print(f"🎯 TestBench에서 {len(testbench_items)}개 아이템 발견")
+            
+            # 아이템들을 캐릭터/일반으로 분류
+            is_naid4 = self._should_use_character_module()
+            for item in testbench_items:
+                if hasattr(item, 'data') and isinstance(item.data, dict):
+                    description = item.data.get('description', {})
+                    pp = description.get('positive_prompt', '').strip()
+                    identity = pp.split(",")[0] if pp else ""
+                    if "boy" in identity.lower():
+                        num_of_boy += 1
+                    elif "girl" in identity.lower():
+                        num_of_girl += 1
+                    elif "other" in identity.lower():
+                        num_of_other += 1
+            
+                if is_naid4 and hasattr(item, 'isCharacter') and item.isCharacter:
+                    character_items.append(item)
+                else:
+                    regular_items.append(item)
+            
+            print(f"  🎭 캐릭터 아이템: {len(character_items)}개")
+            print(f"  📝 일반 아이템: {len(regular_items)}개")
+            
+            # === Character Module 연동 (NAI + NAID4 조건) ===
+            if character_items and is_naid4:
+                self._update_character_module_with_testbench(character_items)
+            
+            # === 일반 아이템들의 Positive Prompt 처리 ===
+            if regular_items:
+                testbench_positive_parts = []
+                
+                for item in regular_items:
+                    if hasattr(item, 'data') and isinstance(item.data, dict):
+                        # description 섹션에서 positive_prompt 추출
+                        description = item.data.get('description', {})
+                        if isinstance(description, dict):
+                            if item.isCharacter: item_positive = item.get_enhanced_positive_prompt()
+                            else: item_positive = description.get('positive_prompt', '').strip()
+                            if item_positive:
+                                testbench_positive_parts.append(item_positive)
+                                print(f"  📝 {item.variable_name}: {item_positive[:50]}{'...' if len(item_positive) > 50 else ''}")
+                
+                # 일반 아이템 프롬프트들을 메인 프롬프트 다음에 추가
+                if testbench_positive_parts:
+                    testbench_combined = ", ".join(testbench_positive_parts)
+                    # positive_prompt 다음, postfix_prompt 이전에 삽입
+                    prompt_parts.insert(-1, testbench_combined)  # 마지막 요소(postfix) 앞에 삽입
+                    print(f"✅ 일반 아이템 프롬프트 추가 완료: {len(testbench_positive_parts)}개")
+        
+        # 최종 positive prompt 조합
         final_parts = [part for part in prompt_parts if part]
         final_prompt = ", ".join(final_parts)
+
+        # ▼▼▼▼▼ [추가] 인물 태그 재배치 로직 ▼▼▼▼▼
+        # 인물 태그 세트 정의
+        person_sets = {
+            "boys": {"1boy", "2boys", "3boys", "4boys", "5boys", "6+boys"},
+            "girls": {"1girl", "2girls", "3girls", "4girls", "5girls", "6+girls"},
+            "others": {"1other", "2others", "3others", "4others", "5others", "6+others"}
+        }
+
+        # final_prompt를 태그 리스트로 분할 및 정리
+        tags = [tag.strip() for tag in final_prompt.split(',') if tag.strip()]
+        if num_of_boy > 0:
+            _num = num_of_boy
+            _tag = f"{_num}boy" if _num == 1 else f"{_num}boys"
+            tags.append(_tag)
+        if num_of_girl > 0:
+            _num = num_of_girl
+            _tag = f"{_num}girl" if _num == 1 else f"{_num}girls"
+            tags.append(_tag)
+        if num_of_other > 0:
+            _num = num_of_other
+            _tag = f"{_num}other" if _num == 1 else f"{_num}others"
+            tags.append(_tag)
+
+        # 인물 태그 수집 및 제거
+        found_person_tags = []
+
+        # boys -> girls -> others 순서로 탐색하여 태그 수집
+        for category in ["boys", "girls", "others"]:
+            person_tag_set = person_sets[category]
+            
+            # 현재 카테고리의 태그들을 찾아서 제거
+            i = 0
+            while i < len(tags):
+                if tags[i] in person_tag_set:
+                    # 발견된 인물 태그를 found_person_tags에 추가하고 원본에서 제거
+                    found_person_tags.append(tags.pop(i))
+                    print(f"  👥 인물 태그 발견 및 재배치: {found_person_tags[-1]} ({category})")
+                else:
+                    i += 1
+
+        # ▼▼▼▼▼ [추가] 동일 그룹 내 최대 인원수 태그만 남기기 ▼▼▼▼▼
+        if found_person_tags:
+            # 각 그룹별로 최대 인원수 태그 찾기
+            group_max_tags = {}
+            
+            for tag in found_person_tags:
+                # 태그에서 인원수 추출 함수
+                def extract_number(tag):
+                    if tag.startswith("6+"):
+                        return 6  # 6+는 6으로 처리
+                    else:
+                        # 숫자 부분만 추출 (1boy -> 1, 2girls -> 2 등)
+                        import re
+                        match = re.match(r'(\d+)', tag)
+                        return int(match.group(1)) if match else 0
+                
+                # 그룹 분류 및 최대값 업데이트
+                for group_name, group_set in person_sets.items():
+                    if tag in group_set:
+                        current_num = extract_number(tag)
+                        if group_name not in group_max_tags or extract_number(group_max_tags[group_name]) < current_num:
+                            if group_name in group_max_tags:
+                                print(f"  🔄 {group_name} 그룹 태그 교체: {group_max_tags[group_name]} -> {tag}")
+                            else:
+                                print(f"  ✅ {group_name} 그룹 최대 태그 설정: {tag}")
+                            group_max_tags[group_name] = tag
+                        else:
+                            print(f"  ❌ {group_name} 그룹 중복 태그 제거: {tag} (현재 최대: {group_max_tags[group_name]})")
+                        break
+            
+            # 최종 인물 태그 리스트 생성 (boys -> girls -> others 순서 유지)
+            final_person_tags = []
+            for group_name in ["boys", "girls", "others"]:
+                if group_name in group_max_tags:
+                    final_person_tags.append(group_max_tags[group_name])
+            
+            print(f"  📋 최종 인물 태그: {final_person_tags}")
+        else:
+            final_person_tags = []
+
+        # 발견된 인물 태그들을 맨 앞에 배치
+        if final_person_tags:
+            final_tags = final_person_tags + tags
+            final_prompt = ", ".join(final_tags)
+            print(f"  🎯 최종 프롬프트 (인물 태그 우선 배치): {final_prompt}")
+        else:
+            print(f"  📝 최종 프롬프트 (인물 태그 없음): {final_prompt}")
+
+        # === Negative Prompt 구성 ===
+        negative_parts = [
+            self.negative_prompt_edit.toPlainText().strip()
+        ]
+        
+        # TestBench 일반 아이템들에서 negative prompt 추가 (캐릭터는 Character Module에서 처리)
+        if regular_items:
+            testbench_negative_parts = []
+            
+            for item in regular_items:
+                if hasattr(item, 'data') and isinstance(item.data, dict):
+                    # description 섹션에서 negative_prompt 추출
+                    description = item.data.get('description', {})
+                    if isinstance(description, dict):
+                        item_negative = description.get('negative_prompt', '').strip()
+                        if item_negative:
+                            testbench_negative_parts.append(item_negative)
+                            print(f"  🚫 {item.variable_name} negative: {item_negative[:30]}{'...' if len(item_negative) > 30 else ''}")
+            
+            # TestBench negative 프롬프트들 추가
+            if testbench_negative_parts:
+                testbench_negative_combined = ", ".join(testbench_negative_parts)
+                negative_parts.append(testbench_negative_combined)
+                print(f"✅ 일반 아이템 negative 프롬프트 추가 완료: {len(testbench_negative_parts)}개")
+        
+        # 최종 negative prompt 조합 (Main Window의 negative prompt 포함)
+        main_negative = ""
+        try:
+            main_negative = self.app_context.main_window.negative_prompt_textedit.toPlainText().strip()
+        except Exception as e:
+            print(f"⚠️ Main Window negative prompt 가져오기 실패: {e}")
+        
+        # Main Window negative + Workshop negative + TestBench negative 순서로 조합
+        all_negative_parts = []
+        if main_negative:
+            all_negative_parts.append(main_negative)
+        
+        final_negative_parts = [part for part in negative_parts if part]
+        if final_negative_parts:
+            all_negative_parts.extend(final_negative_parts)
+        
+        final_negative = ", ".join(all_negative_parts) if all_negative_parts else ""
+        
+        # 생성 파라미터 설정
         override_params = {
             "input": final_prompt,
-            "negative_prompt": self.negative_prompt_edit.toPlainText(),
+            "negative_prompt": final_negative,
             "width": 1024,
             "height": 1024,
             "random_resolution": False
         }
+        
+        # 디버깅 로그
+        print(f"🎨 최종 Positive Prompt: {final_prompt[:100]}{'...' if len(final_prompt) > 100 else ''}")
+        print(f"🚫 최종 Negative Prompt: {final_negative[:100]}{'...' if len(final_negative) > 100 else ''}")
+        
+        # 생성 파이프라인 실행
         self.app_context.subscribe("generation_completed_for_redirect", self._on_workshop_image_generated)
         gen_controller = self.app_context.main_window.generation_controller
         gen_controller.execute_generation_pipeline(overrides=override_params)
 
+    def _should_use_character_module(self) -> bool:
+        """Character Module 사용 조건 체크"""
+        try:
+            # NAI 모드 체크
+            if self.app_context.current_api_mode != 'NAI':
+                return False
+            
+            # NAID4 모델 체크
+            model_text = self.app_context.main_window.model_combo.currentText()
+            if 'NAID4' not in model_text:
+                return False
+            
+            # Character Module 존재 체크
+            char_module = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
+            if not char_module:
+                return False
+            
+            print("✅ Character Module 사용 조건 충족: NAI + NAID4")
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ Character Module 조건 체크 실패: {e}")
+            return False
+
+    def _should_use_character_module(self) -> bool:
+        """Character Module 사용 조건 체크"""
+        try:
+            # NAI 모드 체크
+            if self.app_context.current_api_mode != 'NAI':
+                return False
+            
+            # NAID4 모델 체크
+            model_text = self.app_context.main_window.model_combo.currentText()
+            if 'NAID4' not in model_text:
+                return False
+            
+            # Character Module 존재 체크
+            char_module = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
+            if not char_module:
+                return False
+            
+            print("✅ Character Module 사용 조건 충족: NAI + NAID4")
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ Character Module 조건 체크 실패: {e}")
+            return False
+
+    def _update_character_module_with_testbench(self, character_items):
+        """TestBench 캐릭터 아이템들을 Character Module에 업데이트"""
+        try:
+            char_module = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
+            if not char_module:
+                return
+            
+            characters = []
+            ucs = []
+            
+            for item in character_items:
+                if hasattr(item, 'data') and isinstance(item.data, dict):
+                    # 향상된 positive_prompt 추출 (appendix 포함)
+                    if hasattr(item, 'get_enhanced_positive_prompt'):
+                        positive = item.get_enhanced_positive_prompt()
+                    else:
+                        # fallback: 기본 description에서 positive_prompt 추출
+                        description = item.data.get('description', {})
+                        positive = description.get('positive_prompt', '').strip() if isinstance(description, dict) else ''
+                    
+                    # negative_prompt는 기본 방식 유지 (appendix 적용 안 함)
+                    description = item.data.get('description', {})
+                    negative = description.get('negative_prompt', '').strip() if isinstance(description, dict) else ''
+                    
+                    if positive:
+                        characters.append(positive)
+                        ucs.append(negative)  # negative가 없어도 빈 문자열로 추가
+                        print(f"  🎭 캐릭터 추가: {item.variable_name} -> {positive[:40]}{'...' if len(positive) > 40 else ''}")
+            
+            # Character Module의 modifiable_clone 업데이트
+            if characters:
+                char_module.modifiable_clone = {
+                    'characters': characters,
+                    'uc': ucs
+                }
+                
+                # Character Module 활성화
+                if hasattr(char_module, 'activate_checkbox'):
+                    char_module.activate_checkbox.setChecked(True)
+                
+                # UI 업데이트
+                if hasattr(char_module, 'update_processed_display'):
+                    char_module.update_processed_display(characters, ucs)
+                
+                print(f"✅ Character Module 업데이트 완료: {len(characters)}개 캐릭터")
+                self.app_context.main_window.status_bar.showMessage(f"🎭 {len(characters)}개 캐릭터를 Character Module에 적용했습니다.", 3000)
+            
+        except Exception as e:
+            print(f"❌ Character Module 업데이트 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _on_workshop_image_generated(self, result: dict):
         self.app_context.subscribers["generation_completed_for_redirect"].remove(self._on_workshop_image_generated)
-        image_object = result.get("image")
+        image_object = result
         if isinstance(image_object, Image.Image):
             q_image = ImageQt(image_object)
             pixmap = QPixmap.fromImage(q_image)
@@ -560,8 +884,8 @@ class StorytellerTab(QWidget):
         if expanded_box.level == 'upper':
             # 1. UpperLevel 박스가 펼쳐진 경우
             # 다른 UpperLevel 박스가 열려 있었다면 닫는다.
-            if self.expanded_upper_box and self.expanded_upper_box is not expanded_box:
-                self.expanded_upper_box.collapse()
+            # if self.expanded_upper_box and self.expanded_upper_box is not expanded_box:
+            #     self.expanded_upper_box.collapse()
             
             # 이전에 다른 그룹의 하위 그룹이 열려 있었다면 닫는다.
             if self.expanded_lower_box:
@@ -583,8 +907,8 @@ class StorytellerTab(QWidget):
             self.expanded_lower_box = expanded_box
             
             # 이 하위 그룹의 부모가 아닌 다른 상위 그룹이 열려있다면 닫는다.
-            if self.expanded_upper_box and self.expanded_upper_box is not expanded_box.parent_box:
-                self.expanded_upper_box.collapse()
+            # if self.expanded_upper_box and self.expanded_upper_box is not expanded_box.parent_box:
+            #     self.expanded_upper_box.collapse()
             
             # 현재 상위 그룹을 이 하위 그룹의 부모로 설정한다.
             self.expanded_upper_box = expanded_box.parent_box
@@ -678,24 +1002,28 @@ class StorytellerTab(QWidget):
             print(f"❌ Storyteller 설정 로드 실패: {e}")
 
     def _on_save_item_clicked(self):
-        """'저장' 버튼 클릭 시 아이템을 생성하고 저장하는 전체 로직."""
-        # 1. 유효성 검사
-        if not self.active_story_box:
-            QMessageBox.warning(self, "오류", "아이템을 저장할 그룹 또는 하위 그룹을 먼저 선택(클릭)해주세요.")
+        """'저장' 버튼 클릭 시 아이템을 생성 또는 업데이트하고 저장하는 전체 로직."""
+        self.save_settings()
+
+        # 1. 입력값 유효성 검사
+        if not self.active_story_box or self.active_story_box.level == 'upper':
+            warn_box = QMessageBox(self); warn_box.setIcon(QMessageBox.Icon.Warning); warn_box.setWindowTitle("오류"); warn_box.setText("아이템을 저장할 하위 그룹을 먼저 선택(클릭)해주세요.")
+            style_qmessagebox(warn_box); warn_box.exec()
             return
-        if self.active_story_box.level == 'upper':
-            QMessageBox.warning(self, "오류", "최상위 그룹에는 아이템을 직접 저장할 수 없습니다.\n하위 그룹을 선택하거나 생성해주세요.")
-            return
+        
         variable_name = self.variable_name_input.text()
         if not variable_name:
-            QMessageBox.warning(self, "오류", "저장할 아이템의 변수명을 입력해주세요.")
-            return
-        source_pixmap = self.right_output_panel._pixmap
-        if not source_pixmap or source_pixmap.isNull():
-            QMessageBox.warning(self, "오류", "저장할 이미지가 없습니다. 먼저 이미지를 생성해주세요.")
+            warn_box = QMessageBox(self); warn_box.setIcon(QMessageBox.Icon.Warning); warn_box.setWindowTitle("오류"); warn_box.setText("저장할 아이템의 변수명을 입력해주세요.")
+            style_qmessagebox(warn_box); warn_box.exec()
             return
 
-        # 2. 이미지 처리
+        source_pixmap = self.right_output_panel._pixmap
+        if not source_pixmap or source_pixmap.isNull():
+            warn_box = QMessageBox(self); warn_box.setIcon(QMessageBox.Icon.Warning); warn_box.setWindowTitle("오류"); warn_box.setText("저장할 이미지가 없습니다. 먼저 이미지를 생성해주세요.")
+            style_qmessagebox(warn_box); warn_box.exec()
+            return
+
+        # 2. 이미지 처리 (공통 로직)
         try:
             pil_image = Image.fromqpixmap(source_pixmap)
             w, h = pil_image.size; crop_w, crop_h = int(w * 0.75), int(h * 0.75)
@@ -707,28 +1035,163 @@ class StorytellerTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "오류", f"이미지 처리 중 오류가 발생했습니다: {e}")
             return
-            
-        # 3. StoryItemWidget 생성 및 저장
+        
+        # 3. 중복 변수명 확인 및 분기 처리
         group_box = self.active_story_box
-        parent_box = group_box.parent_box
-        
-        # 저장될 그룹의 전체 경로 결정
-        if parent_box.is_global:
-            group_path = self.global_dir / parent_box.variable_name / group_box.variable_name
-        else:
-            group_path = self.current_project_path / parent_box.variable_name / group_box.variable_name
-        
-        item_widget = StoryItemWidget(group_path=str(group_path), variable_name=variable_name)
-        item_widget.thumbnail_label.setPixmap(thumbnail_pixmap)
-        item_widget.data = {
-            "prefix": self.prefix_prompt_edit.toPlainText(),
-            "positive": self.positive_prompt_edit.toPlainText(),
-            "postfix": self.postfix_prompt_edit.toPlainText(),
-            "negative": self.negative_prompt_edit.toPlainText(),
-        }
-        item_widget.save_data()
+        existing_item_widget = group_box.items.get(variable_name)
 
-        # 4. UI에 위젯 추가 및 완료 처리
-        group_box.add_item(item_widget)
+        if existing_item_widget:
+            # --- 중복된 경우: 기존 아이템 업데이트 ---
+            text = f"'{variable_name}' 아이템이 이미 존재합니다."
+            warning_text = "기존 아이템의 썸네일과 프롬프트 정보를 덮어쓰시겠습니까?"
+            
+            if ConfirmationDialog.ask(self, "덮어쓰기 확인", text, warning_text):
+                # ▼▼▼▼▼ [수정] 업데이트 시에도 새로운 데이터 구조 적용 ▼▼▼▼▼
+                existing_item_widget.thumbnail_label.setPixmap(thumbnail_pixmap)
+                # 기존 appendix 정보는 유지하면서 description과 workshop만 업데이트
+                existing_item_widget.data["description"] = {
+                    "positive_prompt": self.positive_prompt_edit.toPlainText(),
+                    "negative_prompt": self.negative_prompt_edit.toPlainText()
+                }
+                existing_item_widget.data["workshop"] = {
+                    "prefix_prompt": self.prefix_prompt_edit.toPlainText(),
+                    "postfix_prompt": self.postfix_prompt_edit.toPlainText()
+                }
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+                existing_item_widget.save_data()
+                self.app_context.main_window.status_bar.showMessage(f"✅ 아이템 '{variable_name}' 업데이트 완료!", 3000)
+            else:
+                self.app_context.main_window.status_bar.showMessage("ℹ️ 아이템 업데이트가 취소되었습니다.", 3000)
+
+        else:
+            # --- 중복이 아닌 경우: 새 아이템 생성 ---
+            parent_box = group_box.parent_box
+            group_path = (self.global_dir if parent_box.is_global else self.current_project_path) / parent_box.variable_name / group_box.variable_name
+            
+            item_widget = StoryItemWidget(group_path=str(group_path), variable_name=variable_name, parent_box=group_box)
+            item_widget.edit_requested.connect(self._on_item_edit_requested)
+            item_widget.thumbnail_label.setPixmap(thumbnail_pixmap)
+
+            # ▼▼▼▼▼ [수정] 새 아이템 생성 시 새로운 데이터 구조 적용 ▼▼▼▼▼
+            item_widget.data = {
+                "description": {
+                    "positive_prompt": self.positive_prompt_edit.toPlainText(),
+                    "negative_prompt": self.negative_prompt_edit.toPlainText()
+                },
+                "appendix": {
+                    "explain": "이 item에 대한 description을 작성해주세요."
+                },
+                "workshop": {
+                    "prefix_prompt": self.prefix_prompt_edit.toPlainText(),
+                    "postfix_prompt": self.postfix_prompt_edit.toPlainText()
+                }
+            }
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+            item_widget.save_data()
+            group_box.add_item(item_widget)
+            self.app_context.main_window.status_bar.showMessage(f"✅ 새 아이템 '{variable_name}' 저장 완료!", 3000)
+
         self.variable_name_input.clear()
-        self.app_context.main_window.status_bar.showMessage(f"✅ 아이템 '{variable_name}' 저장 완료!", 3000)
+
+    def _on_item_edit_requested(self, item_widget: StoryItemWidget):
+        """아이템 위젯에서 편집 요청이 오면 에디터를 엽니다."""
+        self.item_editor.open_for_item(item_widget)
+
+    def _on_item_saved(self, item_widget: StoryItemWidget, new_data: dict):
+        """에디터에서 저장 요청이 오면 데이터를 업데이트하고 파일을 저장합니다."""
+        item_widget.data = new_data
+        item_widget.save_data()
+        item_widget.load_data() # 썸네일 등 UI 새로고침
+        self.app_context.main_window.status_bar.showMessage(f"✅ '{item_widget.variable_name}' 아이템이 수정되었습니다.", 3000)
+
+    def _on_item_deleted(self, item_widget: StoryItemWidget):
+        """에디터에서 삭제 요청이 오면 파일과 위젯을 제거합니다."""
+        try:
+            # 1. 파일 삭제
+            if item_widget.json_path.exists():
+                item_widget.json_path.unlink()
+            
+            # 2. UI에서 위젯 제거
+            parent_box = item_widget.parent_box
+            if parent_box:
+                parent_box.remove_item(item_widget.variable_name)
+            else:
+                # 부모가 없는 경우를 대비한 안전장치
+                item_widget.deleteLater()
+
+            self.app_context.main_window.status_bar.showMessage(f"✅ '{item_widget.variable_name}' 아이템이 삭제되었습니다.", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"아이템 삭제 중 오류 발생: {e}")
+
+    def _on_item_regeneration_requested(self, item_widget: StoryItemWidget, override_params: dict):
+        """에디터에서 재생성 요청이 오면, 이미지 생성 후 썸네일을 업데이트합니다."""
+        self.app_context.main_window.status_bar.showMessage(f"🔄 '{item_widget.variable_name}' 이미지 재생성 중...")
+        
+        # 결과를 에디터로 리디렉션하기 위한 임시 핸들러
+        def on_regeneration_finished(result: dict):
+            self.app_context.subscribers["generation_completed_for_redirect"].remove(on_regeneration_finished)
+            image_object = result.get("image")
+            if image_object:
+                # 썸네일 생성 및 업데이트 로직 (on_save_item_clicked 참조)
+                # ...
+                # self.item_editor.update_thumbnail(new_pixmap)
+                # self.item_editor.current_item_widget.data['thumbnail_base64'] = ...
+                print("TODO: 썸네일 업데이트 로직 구현")
+
+        self.app_context.subscribe("generation_completed_for_redirect", on_regeneration_finished)
+        gen_controller = self.app_context.main_window.generation_controller
+        gen_controller.execute_generation_pipeline(overrides=override_params)
+
+    def _on_assign_to_workshop_requested(self, prompt_data: dict):
+        """에디터의 프롬프트 데이터를 Workshop의 입력창들로 복사합니다."""
+        self.prefix_prompt_edit.setText(prompt_data.get("prefix", ""))
+        self.positive_prompt_edit.setText(prompt_data.get("positive", ""))
+        self.postfix_prompt_edit.setText(prompt_data.get("postfix", ""))
+        self.negative_prompt_edit.setText(prompt_data.get("negative", ""))
+        
+        self.app_context.main_window.status_bar.showMessage("✅ 프롬프트 정보가 Workshop에 할당되었습니다.", 3000)
+
+    def _on_story_box_delete_requested(self, box_to_delete: StoryBox):
+        """StoryBox 삭제 요청을 받아 확인 후 폴더와 위젯을 삭제합니다."""
+        title = box_to_delete.title
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle("그룹 삭제 확인")
+        msg_box.setText(f"'{title}' 그룹을 정말로 삭제하시겠습니까?")
+        msg_box.setInformativeText("이 작업은 되돌릴 수 없으며, 모든 하위 그룹과 아이템이 영구적으로 삭제됩니다.")
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        style_qmessagebox(msg_box)
+        
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            if self.active_story_box is box_to_delete:
+                self.active_story_box = None
+            if self.expanded_upper_box is box_to_delete:
+                self.expanded_upper_box = None
+            if self.expanded_lower_box is box_to_delete:
+                self.expanded_lower_box = None
+            try:
+                # 1. 파일 시스템에서 폴더 재귀적으로 삭제
+                path_to_delete = Path(box_to_delete.box_path)
+                if path_to_delete.exists():
+                    shutil.rmtree(path_to_delete)
+                    print(f"🗑️ 폴더 삭제 완료: {path_to_delete}")
+
+                # 2. self.story_boxes 딕셔너리에서 해당 박스와 모든 자식 박스들 제거
+                keys_to_delete = []
+                for key, box in self.story_boxes.items():
+                    if box is box_to_delete or (hasattr(box, 'parent_box') and box.parent_box is box_to_delete):
+                        keys_to_delete.append(key)
+                
+                for key in keys_to_delete:
+                    del self.story_boxes[key]
+                print(f"🗑️ 추적 목록에서 '{title}' 및 하위 그룹 제거 완료.")
+
+                # 3. UI에서 위젯 제거
+                box_to_delete.deleteLater()
+                
+                self.app_context.main_window.status_bar.showMessage(f"✅ '{title}' 그룹이 삭제되었습니다.", 3000)
+            except Exception as e:
+                QMessageBox.critical(self, "오류", f"그룹 삭제 중 오류 발생: {e}")

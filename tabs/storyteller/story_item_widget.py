@@ -6,11 +6,12 @@ from io import BytesIO
 
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel
 from PyQt6.QtGui import QPixmap, QMouseEvent, QDrag
-from PyQt6.QtCore import Qt, QSize, QMimeData, QBuffer, QIODevice
+from PyQt6.QtCore import Qt, QSize, QMimeData, QBuffer, QIODevice, pyqtSignal
 
 from ui.theme import DARK_COLORS
 
 class StoryItemWidget(QFrame):
+    edit_requested = pyqtSignal(object) # self
     """
     썸네일 이미지와 데이터를 JSON 파일 하나로 관리하는 위젯.
     """
@@ -133,3 +134,8 @@ class StoryItemWidget(QFrame):
             drag.setPixmap(pixmap)
             drag.setHotSpot(event.pos())
             drag.exec(Qt.DropAction.CopyAction)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.edit_requested.emit(self)
+        super().mouseDoubleClickEvent(event)

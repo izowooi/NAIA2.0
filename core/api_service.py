@@ -37,6 +37,8 @@ class APIService:
         last_exception = None
 
         for attempt in range(1, max_retries + 1):
+            if attempt > 1:
+                print(f"🔄 재시도 {attempt}/{max_retries}...")
             try:
                 if api_mode == "NAI":
                     return self._call_nai_api(parameters)

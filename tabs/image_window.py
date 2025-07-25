@@ -1036,12 +1036,18 @@ class ImageWindow(QWidget):
                 
                 # 정제된 PNG 데이터로부터 새로운 PIL Image 객체 생성
                 image = Image.open(png_buffer)
-                
+
+                redirect_event = "generation_completed_for_redirect"
+                if redirect_event in self.app_context.subscribers and self.app_context.subscribers[redirect_event]:
+                    self.app_context.publish(redirect_event, image)
+
                 # ImageQt.ImageQt를 통해 QImage로 변환
                 q_image = ImageQt.ImageQt(image)
                 png_buffer.close()
             else:
-                # PNG나 기타 형식은 기존 방식 사용
+                redirect_event = "generation_completed_for_redirect"
+                if redirect_event in self.app_context.subscribers and self.app_context.subscribers[redirect_event]:
+                    self.app_context.publish(redirect_event, image)
                 q_image = ImageQt.ImageQt(image)
             
             pixmap = QPixmap.fromImage(q_image)

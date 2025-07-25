@@ -4,7 +4,7 @@ import piexif
 import piexif.helper
 import json
 import re
-from PyQt6.QtCore import QThread, QObject, pyqtSignal
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, QTimer
 import pandas as pd
 
 class GenerationWorker(QObject):
@@ -119,6 +119,11 @@ class GenerationController:
         self.generation_worker = None
         self.is_generating = False
         
+        # 🆕 자동 생성 재시도 관련 추가
+        self.auto_retry_count = 0
+        self.max_auto_retries = 3  # 자동 생성 시 최대 재시도 횟수
+        self.retry_delay_ms = 2000  # 재시도 간격 (밀리초)
+        
     def execute_generation_pipeline(self, overrides: dict = None):
         """7단계 생성 파이프라인을 실행합니다."""
         # 이미 생성 중인 경우 중복 실행 방지
@@ -218,31 +223,107 @@ class GenerationController:
     
     def _on_generation_finished(self, result: dict):
         """생성 완료 시 호출되는 슬롯"""
-        # [수정] 생성 완료 시 즉시 is_generating을 False로 설정
+        # 생성 완료 시 즉시 is_generating을 False로 설정
         self.is_generating = False
         self.context.main_window.generate_button_main.setEnabled(True)
         self.context.main_window.generate_button_main.setText("🎨 이미지 생성 요청")
+        
+        # 🆕 성공 시 재시도 카운터 리셋
+        self.auto_retry_count = 0
         
         # UI 업데이트 (이제 is_generating이 False이므로 자동 생성이 가능)
         self.context.main_window.update_ui_with_result(result)
 
     def _on_generation_error(self, error_message: str):
-        """생성 오류 시 호출되는 슬롯"""
-        # [수정] 오류 발생 시에도 is_generating을 False로 설정
+        """생성 오류 시 호출되는 슬롯 - 🆕 자동 재시도 로직 추가"""
+        # UI 상태 일시적으로 복원
         self.is_generating = False
         self.context.main_window.generate_button_main.setEnabled(True)
         self.context.main_window.generate_button_main.setText("🎨 이미지 생성 요청")
         
-        self.context.main_window.status_bar.showMessage(f"❌ 생성 오류: {error_message}")
-        print(f"생성 오류: {error_message}")
+        print(f"❌ 생성 오류 발생: {error_message}")
+        
+        # 🆕 자동 생성 모드에서의 재시도 로직
+        auto_generate_checkbox = self.context.main_window.generation_checkboxes.get("자동 생성")
+        is_auto_generation = auto_generate_checkbox and auto_generate_checkbox.isChecked()
+        
+        if is_auto_generation and self.auto_retry_count < self.max_auto_retries:
+            # 자동 생성 모드에서 재시도 가능한 경우
+            self.auto_retry_count += 1
+            retry_message = f"🔄 자동 생성 재시도 {self.auto_retry_count}/{self.max_auto_retries} (오류: {error_message[:50]}...)"
+            self.context.main_window.status_bar.showMessage(retry_message)
+            print(f"🔄 자동 생성 재시도 시작: {self.auto_retry_count}/{self.max_auto_retries}")
+            
+            # 지연 후 재시도
+            QTimer.singleShot(self.retry_delay_ms, self._retry_auto_generation)
+            
+        else:
+            # 재시도 횟수 초과 또는 수동 생성 모드
+            if is_auto_generation and self.auto_retry_count >= self.max_auto_retries:
+                # 최대 재시도 횟수 초과 시 자동 생성 중단
+                final_message = f"❌ 자동 생성 최대 재시도 횟수({self.max_auto_retries})를 초과했습니다. 자동 생성을 중단합니다."
+                self.context.main_window.status_bar.showMessage(final_message)
+                print(final_message)
+                
+                # 자동화 모듈이 있다면 중단
+                if (hasattr(self.context.main_window, 'automation_module') and 
+                    self.context.main_window.automation_module and 
+                    self.context.main_window.automation_module.automation_controller.is_running):
+                    self.context.main_window.automation_module.stop_automation()
+                    
+                # 재시도 카운터 리셋
+                self.auto_retry_count = 0
+                
+            else:
+                # 수동 생성 모드의 일반적인 오류 처리
+                self.context.main_window.status_bar.showMessage(f"❌ 생성 오류: {error_message}")
+    
+    def _retry_auto_generation(self):
+        """🆕 자동 생성 재시도를 실행하는 메서드"""
+        try:
+            print(f"🔄 자동 생성 재시도 실행 중... ({self.auto_retry_count}/{self.max_auto_retries})")
+            
+            # 자동 생성이 여전히 활성화되어 있는지 확인
+            auto_generate_checkbox = self.context.main_window.generation_checkboxes.get("자동 생성")
+            if not (auto_generate_checkbox and auto_generate_checkbox.isChecked()):
+                print("⚠️ 자동 생성이 비활성화되어 재시도를 중단합니다.")
+                self.auto_retry_count = 0
+                return
+            
+            # 프롬프트 고정 여부 확인
+            prompt_fixed_checkbox = self.context.main_window.generation_checkboxes.get("프롬프트 고정")
+            is_prompt_fixed = prompt_fixed_checkbox and prompt_fixed_checkbox.isChecked()
+            
+            if is_prompt_fixed:
+                # 프롬프트 고정 모드: 바로 이미지 생성 재시도
+                self.context.main_window.status_bar.showMessage(f"🔄 재시도 {self.auto_retry_count}: 동일한 프롬프트로 생성 재시도 중...")
+                self.execute_generation_pipeline()
+            else:
+                # 프롬프트 가변 모드: 새 프롬프트 생성 후 이미지 생성
+                self.context.main_window.status_bar.showMessage(f"🔄 재시도 {self.auto_retry_count}: 새 프롬프트 생성 후 재시도 중...")
+                
+                # 새 프롬프트 생성 요청
+                settings = {
+                    'prompt_fixed': False,
+                    'auto_generate': True,
+                    'turbo_mode': self.context.main_window.generation_checkboxes["터보 옵션"].isChecked(),
+                    'wildcard_standalone': self.context.main_window.generation_checkboxes["와일드카드 단독 모드"].isChecked(),
+                    "auto_fit_resolution": self.context.main_window.auto_fit_resolution_checkbox.isChecked()
+                }
+                
+                # 자동 생성 플래그 설정
+                self.context.main_window.prompt_gen_controller.auto_generation_requested = True
+                self.context.main_window.prompt_gen_controller.generate_next_prompt(
+                    self.context.main_window.search_results, settings
+                )
+                
+        except Exception as e:
+            print(f"❌ 자동 생성 재시도 중 오류: {e}")
+            self.context.main_window.status_bar.showMessage(f"❌ 재시도 중 오류: {e}")
+            self.auto_retry_count = 0
 
     def _on_thread_finished(self):
         """스레드 완료 시 정리 작업"""
-        # [수정] is_generating 설정은 이미 위에서 처리됨
-        # self.is_generating = False  # 제거
-        # self.context.main_window.generate_button_main.setEnabled(True)  # 제거
-        # self.context.main_window.generate_button_main.setText("🎨 이미지 생성 요청")  # 제거
-        
         # 스레드와 워커 정리만 수행
         if self.generation_thread:
             self.generation_thread.deleteLater()
@@ -254,3 +335,8 @@ class GenerationController:
     def validate_parameters(self, params: dict) -> tuple[bool, str]:
         """파라미터 유효성 검사 로직"""
         return True, ""
+    
+    def reset_auto_retry_count(self):
+        """🆕 외부에서 재시도 카운터를 리셋할 수 있는 메서드"""
+        self.auto_retry_count = 0
+        print("🔄 자동 생성 재시도 카운터가 리셋되었습니다.")
