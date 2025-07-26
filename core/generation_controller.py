@@ -134,7 +134,15 @@ class GenerationController:
         try:
             # --- 1 ~ 4 단계: 파라미터 수집 및 유효성 검사 ---
             api_mode = self.context.main_window.get_current_api_mode()
-            if api_mode == "NAI": token = 'nai_token'
+            if api_mode == "NAI": 
+                token = 'nai_token'
+                char_module = self.context.middle_section_controller.get_module_instance("CharacterModule")
+                if (char_module and 
+                    char_module.activate_checkbox.isChecked() and 
+                    char_module.reroll_on_generate_checkbox.isChecked()):
+                    
+                    print("🔄️ 생성 시 Reroll: 캐릭터 와일드카드를 갱신합니다.")
+                    char_module.process_and_update_view()
             elif api_mode == "COMFYUI": token = 'comfyui_url'
             else: token = 'webui_url'
             credential = self.context.secure_token_manager.get_token(token)

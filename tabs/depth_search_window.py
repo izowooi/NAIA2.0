@@ -427,44 +427,82 @@ class DepthSearchWindow(QWidget):
                 pass
 
     def apply_filters(self):
-        """입력된 모든 필터 조건에 따라 필터링하고 뷰 업데이트"""
-        # [수정] 현재 결과가 있으면 그 안에서, 없으면 원본에서 검색 시작
+        """최적화된 필터링 순서로 성능 개선"""
+        # 현재 결과가 있으면 그 안에서, 없으면 원본에서 검색 시작
         if not self.current_model.is_empty():
             temp_df = self.current_model.get_dataframe().copy()
         else:
             temp_df = self.original_model.get_dataframe().copy()
         
-        # [신규] 등급 필터링 로직 추가
-        enabled_ratings = {key for key, cb in self.d_rating_checkboxes.items() if cb.isChecked()}
-        temp_df = temp_df[temp_df['rating'].isin(enabled_ratings)]
-        temp_df = self.search_engine._apply_filters(
-            temp_df, self.d_search_input.text(), self.d_exclude_input.text()
-        )
-
-        # [신규] 추가 필터 로직
+        # === 1단계: 숫자 필터 (가장 빠름) ===
         try:
-            if self.w_min_check.isChecked(): temp_df = temp_df[temp_df['image_width'] >= int(self.w_min_input.text())]
-            if self.w_max_check.isChecked(): temp_df = temp_df[temp_df['image_width'] <= int(self.w_max_input.text())]
-            if self.h_min_check.isChecked(): temp_df = temp_df[temp_df['image_height'] >= int(self.h_min_input.text())]
-            if self.h_max_check.isChecked(): temp_df = temp_df[temp_df['image_height'] <= int(self.h_max_input.text())]
+            # ID 필터 (보통 가장 선택적)
+            if self.id_min_check.isChecked():
+                temp_df = temp_df[temp_df['id'] >= int(self.id_min_input.text())]
+            if self.id_max_check.isChecked():
+                temp_df = temp_df[temp_df['id'] <= int(self.id_max_input.text())]
             
-            if self.token_min_check.isChecked(): temp_df = temp_df[temp_df['tokens'] >= int(self.token_min_input.text())]
-            if self.token_max_check.isChecked(): temp_df = temp_df[temp_df['tokens'] <= int(self.token_max_input.text())]
-            if self.id_min_check.isChecked(): temp_df = temp_df[temp_df['id'] >= int(self.id_min_input.text())]
-            if self.id_max_check.isChecked(): temp_df = temp_df[temp_df['id'] <= int(self.id_max_input.text())]
-            if self.score_min_check.isChecked(): temp_df = temp_df[temp_df['score'] >= int(self.score_min_input.text())]
-            if self.rem_char_check.isChecked() and self.only_empty_char_check.isChecked():
-                # 두 옵션이 모두 체크된 경우, 결과는 0이 되므로 빈 데이터프레임 반환
-                temp_df = pd.DataFrame(columns=temp_df.columns)
-            elif self.rem_char_check.isChecked():
-                temp_df = temp_df[temp_df['character'].notna()]
-            elif self.only_empty_char_check.isChecked():
-                temp_df = temp_df[temp_df['character'].isna()]
+            # Score 필터
+            if self.score_min_check.isChecked():
+                temp_df = temp_df[temp_df['score'] >= int(self.score_min_input.text())]
+            
+            # 이미지 크기 필터
+            if self.w_min_check.isChecked():
+                temp_df = temp_df[temp_df['image_width'] >= int(self.w_min_input.text())]
+            if self.w_max_check.isChecked():
+                temp_df = temp_df[temp_df['image_width'] <= int(self.w_max_input.text())]
+            if self.h_min_check.isChecked():
+                temp_df = temp_df[temp_df['image_height'] >= int(self.h_min_input.text())]
+            if self.h_max_check.isChecked():
+                temp_df = temp_df[temp_df['image_height'] <= int(self.h_max_input.text())]
+            
+            # 토큰 필터
+            if self.token_min_check.isChecked():
+                temp_df = temp_df[temp_df['tokens'] >= int(self.token_min_input.text())]
+            if self.token_max_check.isChecked():
+                temp_df = temp_df[temp_df['tokens'] <= int(self.token_max_input.text())]
                 
         except (ValueError, KeyError) as e:
             QMessageBox.warning(self, "입력 오류", f"필터 값에 유효한 숫자를 입력해주세요.\n오류: {e}")
             return
+        
+        # 빠른 종료: 숫자 필터 후 결과가 없으면 중단
+        if temp_df.empty:
+            self.current_model = SearchResultModel(temp_df)
+            self.update_view()
+            return
+        
+        # === 2단계: 카테고리 필터 ===
+        # Rating 필터 (최적화된 방식)
+        enabled_ratings = {key for key, cb in self.d_rating_checkboxes.items() if cb.isChecked()}
+        if len(enabled_ratings) < 4:  # 모든 등급이 선택되지 않은 경우만 필터링
+            temp_df = temp_df[temp_df['rating'].isin(enabled_ratings)]
 
+        # Character 필터
+        if self.rem_char_check.isChecked() and self.only_empty_char_check.isChecked():
+            # 두 옵션이 모두 체크된 경우, 결과는 0이 되므로 빈 데이터프레임 반환
+            temp_df = pd.DataFrame(columns=temp_df.columns)
+        elif self.rem_char_check.isChecked():
+            temp_df = temp_df[temp_df['character'].notna()]
+        elif self.only_empty_char_check.isChecked():
+            temp_df = temp_df[temp_df['character'].isna()]
+        
+        # 빠른 종료: 카테고리 필터 후 결과가 없으면 중단
+        if temp_df.empty:
+            self.current_model = SearchResultModel(temp_df)
+            self.update_view()
+            return
+        
+        # === 3단계: 텍스트 검색 (가장 느림, 마지막에 수행) ===
+        # 검색어나 제외어가 있을 때만 수행
+        search_text = self.d_search_input.text().strip()
+        exclude_text = self.d_exclude_input.text().strip()
+        
+        if search_text or exclude_text:
+            temp_df = self.search_engine._apply_filters(
+                temp_df, search_text, exclude_text
+            )
+        
         self.current_model = SearchResultModel(temp_df)
         self.update_view()
 

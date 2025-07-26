@@ -257,16 +257,16 @@ class CharacterModule(BaseMiddleModule, ModeAwareModule):
             return {"characters": None}
 
         # "생성 시 Reroll"이 체크된 경우에만 와일드카드 재처리
-        if self.reroll_on_generate_checkbox.isChecked():
-            temp_context = self.process_and_update_view()
-        else:
-            # 체크되지 않은 경우, 캐시된 마지막 결과 사용
-            temp_context = None
+        # if self.reroll_on_generate_checkbox.isChecked():
+        #     temp_context = self.process_and_update_view()
+        # else:
+        #     # 체크되지 않은 경우, 캐시된 마지막 결과 사용
+        #     temp_context = None
 
         # 메인 컨텍스트에 와일드카드 처리 결과 병합
-        if temp_context and hasattr(self, 'app_context') and self.app_context.current_prompt_context:
-            self.app_context.current_prompt_context.wildcard_history.update(temp_context.wildcard_history)
-            self.app_context.current_prompt_context.wildcard_state.update(temp_context.wildcard_state)
+        # if temp_context and hasattr(self, 'app_context') and self.app_context.current_prompt_context:
+        #     self.app_context.current_prompt_context.wildcard_history.update(temp_context.wildcard_history)
+        #     self.app_context.current_prompt_context.wildcard_state.update(temp_context.wildcard_state)
 
         return self.modifiable_clone
     
