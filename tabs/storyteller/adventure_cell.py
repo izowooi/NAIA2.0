@@ -2,13 +2,14 @@ import uuid
 import json
 import base64
 import re
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QPushButton, QLabel, 
     QTextEdit, QScrollArea, QSizePolicy, QSplitter, QComboBox, QCheckBox, QGridLayout
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QSize
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QPainter, QColor
-from typing import Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from ui.theme import DARK_STYLES, DARK_COLORS, CUSTOM
 from tabs.storyteller.testbench_widget import TestbenchWidget
@@ -16,6 +17,8 @@ from tabs.storyteller.cloned_story_item import ClonedStoryItem
 from PIL import Image
 from PIL.ImageQt import ImageQt
 
+if TYPE_CHECKING:
+    from tabs.storyteller.adventure_tab import AdventureTab
 
 class StableImageWidget(QWidget):
     """
@@ -46,13 +49,20 @@ class StableImageWidget(QWidget):
         square_size = min(widget_size.width(), widget_size.height())
         scaled_pixmap = self._pixmap.scaled(
             QSize(square_size, square_size),
-            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation
         )
         x = (widget_size.width() - scaled_pixmap.width()) // 2
         y = (widget_size.height() - scaled_pixmap.height()) // 2
         painter.drawPixmap(x, y, scaled_pixmap)
         painter.end()
+
+    def resizeEvent(self, event):
+        """위젯 크기가 변경될 때 자동으로 이미지를 다시 그립니다."""
+        super().resizeEvent(event)
+        # 크기 변경 후 이미지 다시 그리기
+        self.update()
+
 
 class CharacterWidget(QFrame):
     def __init__(self, character_data, variable_name, parent=None):
@@ -105,6 +115,13 @@ class CharacterWidget(QFrame):
                 print(f"Error decoding thumbnail for {self.variable_name}: {e}")
         else:
             self.thumbnail_label.setText("No Image")
+
+    def update_character(self, character_data, variable_name):
+        """새로운 캐릭터 데이터로 위젯의 표시 내용을 업데이트합니다."""
+        self.character_data = character_data
+        self.variable_name = variable_name
+        self.name_label.setText(variable_name)
+        self.load_character_display() # 썸네일 새로고침
 
 class CharacterFrame(QFrame):
     remove_requested = pyqtSignal(object)
@@ -227,6 +244,9 @@ class Cell(QFrame):
         self.id = str(uuid.uuid4())
         self.character_frames = []
         self.left_layout = None
+        self.content_layout = None
+        self.left_panel = None # left_panel 참조를 위해 추가
+        self.right_panel = None # right_panel 참조를 위해 추가
         self.setStyleSheet(f"border: 1px solid {DARK_COLORS['border']}; border-radius: 6px;")
         self.master_resolution_combo = master_resolution_combo 
         self.init_ui()
@@ -235,15 +255,15 @@ class Cell(QFrame):
         self.main_layout = QVBoxLayout(self)
         
         # 1. 상단: 입력 패널과 출력 패널을 담을 수평 레이아웃 (Splitter -> QHBoxLayout)
-        content_layout = QHBoxLayout()
+        self.content_layout = QHBoxLayout()
 
-        left_panel = self._create_left_panel()
-        right_panel = self._create_right_panel()
+        self.left_panel = self._create_left_panel()
+        self.right_panel = self._create_right_panel()
         
-        content_layout.addWidget(left_panel, 1) # 1:1 비율
-        content_layout.addWidget(right_panel, 1) # 1:1 비율
+        self.content_layout.addWidget(self.left_panel, 1) # 1:1 비율
+        self.content_layout.addWidget(self.right_panel, 1) # 1:1 비율
         
-        self.main_layout.addLayout(content_layout)
+        self.main_layout.addLayout(self.content_layout)
 
         # 2. 하단: 컨트롤 버튼 영역
         control_layout = self._create_control_layout()
@@ -351,6 +371,17 @@ class Cell(QFrame):
         main_control_layout.addLayout(bottom_row_layout)
 
         return main_control_layout
+
+    def set_input_panel_visible(self, visible: bool):
+        """왼쪽 입력 패널의 표시 여부를 너비 조절을 통해 설정합니다."""
+        if self.left_panel:
+            if visible:
+                # 보이기: 너비 제한을 풀어 원래 크기로 복원
+                self.left_panel.setMaximumWidth(16777215) 
+                self.left_panel.setVisible(True)
+            else:
+                # 숨기기: 너비를 0으로 만들어 공간을 차지하지 않게 함
+                self.left_panel.setMaximumWidth(0)
 
     def add_character_frame(self, dropped_data: dict):
         if len(self.character_frames) >= 6:
@@ -495,6 +526,9 @@ class Cell(QFrame):
         }
 
 class CellManager(QWidget):
+    scenario_run_started = pyqtSignal()
+    scenario_run_finished = pyqtSignal()
+
     def __init__(self, app_context, storyteller_tab, parent=None):
         super().__init__(parent)
         self.app_context = app_context
@@ -502,6 +536,8 @@ class CellManager(QWidget):
         self.cells: list[Cell] = []
         self.master_resolution_combo = self._clone_main_resolution_combo()
         self.running_cell: Cell | None = None
+        self.is_scenario_running = False
+        self.run_queue: list[Cell] = []
         self.init_ui()
 
     def init_ui(self):
@@ -524,11 +560,11 @@ class CellManager(QWidget):
         main_layout.addWidget(top_control_bar)
 
         # 2. 스크롤 영역
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setStyleSheet(CUSTOM['middle_scroll_area'])
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setStyleSheet(CUSTOM['middle_scroll_area'])
         
         container = QWidget()
         self.cells_layout = QVBoxLayout(container)
@@ -537,8 +573,8 @@ class CellManager(QWidget):
         self.cells_layout.setContentsMargins(10, 10, 10, 10)
         self.cells_layout.addStretch(1)
         
-        scroll_area.setWidget(container)
-        main_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(container)
+        main_layout.addWidget(self.scroll_area)
         
         QTimer.singleShot(0, self.add_initial_cell)
 
@@ -672,7 +708,12 @@ class CellManager(QWidget):
         options = cell_data.get("options", {})
         width = options.get("width", 1024); height = options.get("height", 1024)
         seed_reuse = options.get("seed_reuse", False)
-        if seed_reuse: print("TODO: 이전 시드 요청 로직 구현 필요")
+        main_seed_fix_checkbox = self.app_context.main_window.seed_fix_checkbox
+        if main_seed_fix_checkbox:
+            # Cell의 체크박스 상태에 따라 메인 UI의 시드 고정 체크박스를 제어
+            main_seed_fix_checkbox.setChecked(seed_reuse)
+            if seed_reuse:
+                print(f"  🌱 Cell [{self.get_cell_index(cell) + 1}] 시드 재사용 활성화")
 
         # 5. 최종 파라미터 생성 및 생성 요청
         override_params = {
@@ -849,8 +890,11 @@ class CellManager(QWidget):
         
         if not self.running_cell:
             print("⚠️ 실행 중인 Cell 정보가 없어 이미지 업데이트를 건너뜁니다.")
+            # 시나리오 실행 중이었다면 중단
+            if self.is_scenario_running:
+                self.is_scenario_running = False
+                self.run_queue.clear()
             return
-
         try:
             image_object = result
             if isinstance(image_object, Image.Image):
@@ -858,6 +902,7 @@ class CellManager(QWidget):
                 pixmap = QPixmap.fromImage(q_image)
                 if not pixmap.isNull():
                     self.running_cell.output_image_widget.setPixmap(pixmap)
+                    self.scroll_area.ensureWidgetVisible(self.running_cell, 50, 50)
                     self.app_context.main_window.status_bar.showMessage(f"✅ Cell [{self.get_cell_index(self.running_cell) + 1}] 생성 완료!", 3000)
                 else:
                     self.app_context.main_window.status_bar.showMessage("❌ QPixmap 변환 실패", 5000)
@@ -868,8 +913,15 @@ class CellManager(QWidget):
         except Exception as e:
             print(f"❌ Cell 이미지 업데이트 중 오류: {e}")
         finally:
-            # 작업이 성공하든 실패하든 실행 상태를 초기화
-            self.running_cell = None
+            main_seed_fix_checkbox = self.app_context.main_window.seed_fix_checkbox
+            if main_seed_fix_checkbox:
+                main_seed_fix_checkbox.setChecked(False)
+            current_cell_index = self.get_cell_index(self.running_cell)
+            print(f"  -> Cell [{current_cell_index + 1}] 작업 완료.")
+            
+            self.running_cell = None # 현재 셀 실행 완료
+            if self.is_scenario_running:
+                QTimer.singleShot(500, self._run_next_cell)
 
     def clone_cell(self, cell: Cell):
         """셀을 복제하여 바로 아래에 추가합니다."""
@@ -904,3 +956,134 @@ class CellManager(QWidget):
                 self.update_all_cell_controls()
         except ValueError:
             print(f"오류: 이동할 Cell {cell}을 목록에서 찾을 수 없습니다.")
+
+    def handle_character_swap(self, source_name: str, target_name: str):
+        """모든 Cell을 순회하며 source_name을 target_name으로 교체 또는 맞바꿉니다."""
+        print(f"🔄 캐릭터 교체 실행: '{source_name}' -> '{target_name}'")
+
+        adventure_tab = self.storyteller_tab.right_panel.widget(1)
+        target_item = adventure_tab.find_character_in_bench(target_name)
+        if not target_item:
+            print(f"❌ 교체할 대상 '{target_name}'을 찾을 수 없습니다.")
+            return
+
+        for cell in self.cells:
+            source_frame, target_frame = None, None
+
+            # 1. 현재 Cell에서 source와 target 프레임을 모두 찾습니다.
+            for frame in cell.character_frames:
+                if frame.char_widget.variable_name == source_name:
+                    source_frame = frame
+                elif frame.char_widget.variable_name == target_name:
+                    target_frame = frame
+
+            if source_frame and target_frame:
+                # --- Swap 로직: source와 target이 모두 Cell에 있을 경우 ---
+                print(f"  - Cell [{self.get_cell_index(cell) + 1}]에서 Swap 실행")
+                source_item = adventure_tab.find_character_in_bench(source_name)
+                if not source_item: continue
+
+                # 각 CharacterWidget의 내용만 서로 교체
+                source_frame.char_widget.update_character(target_item.data, target_item.variable_name)
+                target_frame.char_widget.update_character(source_item.data, source_item.variable_name)
+                
+                self.app_context.main_window.status_bar.showMessage(f"✅ '{source_name}'↔'{target_name}' 캐릭터 교체 완료.", 3000)
+                return
+
+            elif source_frame:
+                # --- Replace 로직: source만 Cell에 있을 경우 ---
+                print(f"  - Cell [{self.get_cell_index(cell) + 1}]에서 Replace 실행")
+                
+                # CharacterFrame을 교체하는 대신, 내부 CharacterWidget의 내용만 업데이트
+                source_frame.char_widget.update_character(target_item.data, target_item.variable_name)
+                
+                self.app_context.main_window.status_bar.showMessage(f"✅ '{source_name}'가 '{target_name}'(으)로 교체되었습니다.", 3000)
+                return
+            
+    def clear_all_cells(self):
+        """모든 Cell을 제거하고 초기 상태로 되돌립니다."""
+        for cell in self.cells[:]:
+            self.remove_cell(cell)
+        
+        # remove_cell에서 마지막 셀이 제거될 때 add_initial_cell을 호출하므로
+        # 여기서는 별도 호출이 필요 없음.
+        if not self.cells:
+            self.add_initial_cell()
+
+    def load_from_data(self, cells_data: list):
+        """데이터 리스트로부터 전체 Cell 목록을 복원합니다."""
+        # 1. 기존 셀 모두 제거 (초기 셀 추가 없이)
+        for cell in self.cells[:]:
+            self.cells.remove(cell)
+            self.cells_layout.removeWidget(cell)
+            cell.deleteLater()
+        
+        # 2. 데이터로부터 새 셀들 생성
+        if not cells_data:
+            self.add_initial_cell() # 데이터가 없으면 초기 셀 하나만 추가
+        else:
+            for cell_data in cells_data:
+                self.add_cell(data=cell_data)
+
+    def run_scenario(self):
+        if self.is_scenario_running: return
+        if not self.cells: return
+        
+        self.is_scenario_running = True
+        self.run_queue = self.cells.copy()
+        self.scenario_run_started.emit()
+        
+        self.app_context.main_window.status_bar.showMessage(f"🚀 시나리오 실행 시작 (총 {len(self.run_queue)}개 Cell)")
+        self._run_next_cell()
+
+    def stop_scenario(self):
+        """실행 중인 시나리오를 중단합니다."""
+        if not self.is_scenario_running: return
+        
+        self.is_scenario_running = False
+        self.run_queue.clear()
+        
+        # 현재 실행 중인 생성이 있다면 중단 (구현 필요 시)
+        # self.app_context.main_window.generation_controller.cancel_generation()
+        
+        self.scenario_run_finished.emit()
+        self.app_context.main_window.status_bar.showMessage("🛑 시나리오 실행이 중단되었습니다.", 3000)
+        print("🛑 시나리오 실행 중단됨.")
+
+    def _run_next_cell(self):
+        if not self.is_scenario_running:
+            self.scenario_run_finished.emit() # 중단된 경우 상태 복원
+            return
+
+        if self.run_queue:
+            next_cell = self.run_queue.pop(0)
+            self.execute_cell_logic(next_cell)
+        else:
+            self.is_scenario_running = False
+            self.scenario_run_finished.emit()
+            self.app_context.main_window.status_bar.showMessage("✅ 시나리오 실행 완료!", 5000)
+
+    def set_immersive_mode(self, enabled: bool):
+        """모든 Cell의 Immersive Mode 상태를 설정합니다."""
+        for cell in self.cells:
+            cell.set_input_panel_visible(not enabled)
+
+    def save_all_cell_images(self, directory: str) -> int:
+        """모든 Cell의 출력 이미지를 지정된 디렉토리에 저장합니다."""
+        saved_count = 0
+        save_path = Path(directory)
+        
+        for i, cell in enumerate(self.cells):
+            if cell.output_image_widget and cell.output_image_widget._pixmap:
+                pixmap_to_save = cell.output_image_widget._pixmap
+                filename = f"cell_{i+1:03d}.png"
+                filepath = save_path / filename
+                
+                try:
+                    pixmap_to_save.save(str(filepath), "PNG")
+                    saved_count += 1
+                    print(f"  🖼️ 이미지 저장: {filepath}")
+                except Exception as e:
+                    print(f"❌ '{filename}' 저장 실패: {e}")
+        
+        return saved_count

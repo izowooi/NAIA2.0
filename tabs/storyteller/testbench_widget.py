@@ -1,14 +1,17 @@
 import json, base64
 from pathlib import Path
 from PyQt6.QtWidgets import QFrame, QLabel
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 
 from ui.theme import DARK_COLORS
 from tabs.storyteller.cloned_story_item import ClonedStoryItem
 from tabs.storyteller.testbench_layout_manager import TestbenchLayoutManager
+from tabs.storyteller.cloned_story_item import ClonedStoryItem
 
 class TestbenchWidget(QFrame):
+    item_swap_requested = pyqtSignal(str, str) # source_name, target_name
+
     def __init__(self, storyteller_tab, config: dict, parent=None):
         super().__init__(parent)
         self.storyteller_tab = storyteller_tab
@@ -149,10 +152,9 @@ class TestbenchWidget(QFrame):
         
         # 복제본 생성
         try:
-            cloned_widget = ClonedStoryItem(original_widget, origin_tag=self.origin_tag, parent=self)
-            
-            # 제거 시그널 연결
+            cloned_widget = ClonedStoryItem(original_widget, origin_tag=self.origin_tag, parent_bench=self, parent=self)
             cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
+            cloned_widget.swap_requested.connect(self._on_item_swap_requested)
             
             self.clone_counter += 1
             print(f"Created clone #{self.clone_counter}: {cloned_widget.instance_id}")
@@ -290,7 +292,37 @@ class TestbenchWidget(QFrame):
             temp_original = StoryItemWidget(group_path="", variable_name=variable_name)
             temp_original.data = full_data
             
-            # 원본 썸네일 정보 로드
+            thumbnail_b64 = full_data.get("thumbnail_base64")
+            if thumbnail_b64:
+                pixmap = QPixmap()
+                pixmap.loadFromData(base64.b64decode(thumbnail_b64), "PNG")
+                temp_original.thumbnail_label.setPixmap(pixmap)
+            
+            cloned_widget = ClonedStoryItem(temp_original, origin_tag=origin_tag, parent=self)
+            cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
+            self.layout_manager.add_item(cloned_widget)
+        except Exception as e:
+            print(f"Error adding item from data: {e}")
+
+    def clear_items(self):
+        """Testbench의 모든 아이템을 제거합니다."""
+        all_items = self.layout_manager.get_all_items()
+        for item in all_items:
+            if self.layout_manager.remove_item(item):
+                item.deleteLater()
+        self.layout_manager._update_layout()
+
+    def add_item_from_data(self, item_data: dict):
+        """딕셔너리 데이터로부터 ClonedStoryItem을 생성하여 추가합니다."""
+        try:
+            full_data = item_data.get("full_data", {})
+            variable_name = item_data.get("variable_name")
+            origin_tag = item_data.get("origin_tag")
+            
+            from tabs.storyteller.story_item_widget import StoryItemWidget
+            temp_original = StoryItemWidget(group_path="", variable_name=variable_name)
+            temp_original.data = full_data
+            
             thumbnail_b64 = full_data.get("thumbnail_base64")
             if thumbnail_b64:
                 pixmap = QPixmap()
@@ -308,3 +340,13 @@ class TestbenchWidget(QFrame):
         self.clear_items()
         for item_data in items_data:
             self.add_item_from_data(item_data)
+
+    def _on_item_swap_requested(self, source_item: ClonedStoryItem, target_variable_name: str):
+        """자식 위젯의 교체 요청을 받아 자신의 시그널을 발생시킵니다."""
+        print(f"Testbench: Swap requested from '{source_item.variable_name}' to '{target_variable_name}'")
+        self.item_swap_requested.emit(source_item.variable_name, target_variable_name)
+
+    def get_other_items(self, item_to_exclude: ClonedStoryItem) -> list[ClonedStoryItem]:
+        """주어진 아이템을 제외한 모든 아이템의 리스트를 반환합니다."""
+        all_items = self.layout_manager.get_all_items()
+        return [item for item in all_items if item is not item_to_exclude]

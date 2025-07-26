@@ -1,23 +1,25 @@
 import json
 import uuid
 import copy
-from PyQt6.QtGui import QMouseEvent, QDrag, QPixmap, QPainter
+from PyQt6.QtGui import QMouseEvent, QDrag, QPixmap, QPainter, QAction
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QRect
-from PyQt6.QtWidgets import QWidget, QLabel, QPushButton
+from PyQt6.QtWidgets import QWidget, QLabel, QPushButton, QMenu
 
 class ClonedStoryItem(QWidget):
     """
     Testbench 전용 복제된 아이템 위젯 - 캐릭터 감지 기능 추가
     """
     remove_requested = pyqtSignal(object)  # 제거 요청 시그널
+    swap_requested = pyqtSignal(object, str)
     
-    def __init__(self, original_widget, origin_tag: str, parent=None):
+    def __init__(self, original_widget, origin_tag: str, parent_bench=None, parent=None):
         super().__init__(parent)
         
         # 고유 식별자
         self.instance_id = str(uuid.uuid4())
         self.variable_name = original_widget.variable_name
         self.origin_tag = origin_tag
+        self.parent_bench = parent_bench
         
         # 원본 데이터 깊은 복사
         self.data = copy.deepcopy(original_widget.data)
@@ -433,3 +435,38 @@ class ClonedStoryItem(QWidget):
             "appendix_enabled": self.appendix_enabled,
             "full_data": self.data
         }
+    
+    def contextMenuEvent(self, event: QMouseEvent):
+        """우클릭 시 캐릭터 교체 메뉴를 표시합니다."""
+        # adventure_character_bench에서 온 아이템일 경우에만 메뉴 표시
+        if self.origin_tag != 'adventure_character_bench' or not self.parent_bench:
+            return
+
+        # 부모 Testbench에 자신을 제외한 다른 아이템 목록 요청
+        other_items = self.parent_bench.get_other_items(self)
+        if not other_items:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{ background-color: #333; color: white; border: 1px solid #555; }}
+            QMenu::item:selected {{ background-color: #555; }}
+        """)
+        
+        # 메뉴 최상단에 정보 라벨 추가
+        title_action = QAction("Switch to ...", self)
+        title_action.setEnabled(False)
+        menu.addAction(title_action)
+        menu.addSeparator()
+
+        # 다른 아이템들로 교체할 수 있는 액션 추가
+        for item in other_items:
+            action = QAction(item.variable_name, self)
+            # lambda의 인자를 명시적으로 캡처하여 올바른 변수명이 전달되도록 함
+            action.triggered.connect(
+                lambda checked=False, source=self, target_name=item.variable_name: 
+                source.swap_requested.emit(source, target_name)
+            )
+            menu.addAction(action)
+        
+        menu.exec(event.globalPos())
