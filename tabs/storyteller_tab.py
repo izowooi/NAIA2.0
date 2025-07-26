@@ -17,6 +17,7 @@ from tabs.storyteller.story_item_widget import StoryItemWidget
 from tabs.storyteller.custom_dialogs import CustomInputDialog, ConfirmationDialog, style_qmessagebox
 from tabs.storyteller.item_editor import ItemEditorWidget
 from tabs.storyteller.testbench_widget import TestbenchWidget
+from tabs.storyteller.adventure_tab import AdventureTab
 
 class StableImageWidget(QWidget):
     """
@@ -410,7 +411,7 @@ class StorytellerTab(QWidget):
         tab_widget = QTabWidget()
         tab_widget.setStyleSheet(DARK_STYLES['dark_tabs'])
         workshop_tab = self._create_workshop_ui()
-        adventure_tab = QWidget()
+        adventure_tab = AdventureTab(self.app_context, self)
         adventure_layout = QVBoxLayout(adventure_tab)
         adventure_label = QLabel("🚀 Adventure\n\n완성된 스토리를 바탕으로 새로운 이야기를 생성하고 탐험합니다.")
         adventure_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -463,7 +464,13 @@ class StorytellerTab(QWidget):
         bottom_layout = QVBoxLayout(bottom_panel)
         bottom_layout.setSpacing(10)
 
-        self.testbench = TestbenchWidget(storyteller_tab=self)
+        workshop_bench_config = {
+            'placeholder_text': "[Testbench] Drag & Drop left widget items to here…",
+            'accept_filter': None # 모든 아이템 허용
+        }
+        self.testbench = TestbenchWidget(storyteller_tab=self, config=workshop_bench_config)
+        self.testbench.setMaximumHeight(180)
+        bottom_layout.addWidget(self.testbench)
         self.testbench.setMaximumHeight(180) # 아이템 한 줄 + 약간의 여유 높이
         bottom_layout.addWidget(self.testbench)
 
@@ -761,6 +768,8 @@ class StorytellerTab(QWidget):
         print(f"🚫 최종 Negative Prompt: {final_negative[:100]}{'...' if len(final_negative) > 100 else ''}")
         
         # 생성 파이프라인 실행
+        auto_generate_checkbox = self.app_context.main_window.generation_checkboxes.get("자동 생성")
+        if auto_generate_checkbox.isChecked(): auto_generate_checkbox.setChecked(False)  # 자동 생성 해제
         self.app_context.subscribe("generation_completed_for_redirect", self._on_workshop_image_generated)
         gen_controller = self.app_context.main_window.generation_controller
         gen_controller.execute_generation_pipeline(overrides=override_params)
@@ -1026,12 +1035,31 @@ class StorytellerTab(QWidget):
         # 2. 이미지 처리 (공통 로직)
         try:
             pil_image = Image.fromqpixmap(source_pixmap)
-            w, h = pil_image.size; crop_w, crop_h = int(w * 0.75), int(h * 0.75)
+            
+            # 안전한 PNG 변환을 위한 처리
+            if pil_image.mode != 'RGBA':
+                # RGBA 모드로 변환
+                pil_image = pil_image.convert('RGBA')
+            
+            # 메모리 상에서 PNG로 변환하여 안정성 확보
+            from io import BytesIO
+            png_buffer = BytesIO()
+            pil_image.save(png_buffer, format='PNG')
+            png_buffer.seek(0)
+            
+            # PNG 데이터로부터 새로운 PIL 이미지 생성
+            pil_image = Image.open(png_buffer)
+            
+            # 기존 크롭 및 썸네일 로직
+            w, h = pil_image.size
+            crop_w, crop_h = int(w * 0.75), int(h * 0.75)
             left, top = (w - crop_w) // 2, (h - crop_h) // 2
             right, bottom = left + crop_w, top + crop_h
             cropped_image = pil_image.crop((left, top, right, bottom))
             cropped_image.thumbnail((128, 128), Image.Resampling.LANCZOS)
+            
             thumbnail_pixmap = QPixmap.fromImage(ImageQt(cropped_image))
+            
         except Exception as e:
             QMessageBox.critical(self, "오류", f"이미지 처리 중 오류가 발생했습니다: {e}")
             return

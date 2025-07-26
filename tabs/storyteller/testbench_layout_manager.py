@@ -162,13 +162,15 @@ class TestbenchRow(QWidget):
 class TestbenchLayoutManager:
     """Testbench의 전체 레이아웃을 관리하는 클래스 - Single Row with Horizontal Scroll"""
     
-    def __init__(self, parent_widget: QWidget):
+    def __init__(self, parent_widget: QWidget, ui_elements: dict):
         self.parent_widget = parent_widget
         self.single_row: Optional[TestbenchRow] = None
         self.scroll_area: Optional[QScrollArea] = None
-        self.placeholder_label: Optional[QLabel] = None
-        self.max_total_items = 12  # 여전히 12개 제한 유지
-        self.current_preview_row = None  # 현재 미리보기가 표시된 행 (항상 single_row)
+
+        self.placeholder_label = ui_elements.get('placeholder_label')
+        
+        self.max_total_items = 12
+        self.current_preview_row = None
         
         self.init_layout()
     
@@ -182,7 +184,8 @@ class TestbenchLayoutManager:
         self.create_scroll_area()
         
         # 플레이스홀더 추가
-        self.show_placeholder()
+        if self.placeholder_label:
+            self.main_layout.addWidget(self.placeholder_label)
     
     def create_scroll_area(self):
         """가로 스크롤이 가능한 스크롤 영역 생성"""
@@ -236,35 +239,17 @@ class TestbenchLayoutManager:
     
     def show_placeholder(self):
         """플레이스홀더 표시"""
-        if not self.placeholder_label:
-            from ui.theme import DARK_COLORS
-            self.placeholder_label = QLabel("[Testbench] Drag & Drop left widget items to here…")
-            self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.placeholder_label.setStyleSheet(f"""
-                color: {DARK_COLORS['text_secondary']}; 
-                border: none; 
-                font-size: 18px; 
-                background-color: transparent;
-                padding: 20px;
-            """)
-        
-        if self.placeholder_label.parent() is None:
-            self.main_layout.addWidget(self.placeholder_label)
-            self.placeholder_label.show()
-        
-        # 스크롤 영역 숨김
+        if self.placeholder_label:
+            self.placeholder_label.setVisible(True)
         if self.scroll_area:
-            self.scroll_area.hide()
-    
+            self.scroll_area.setVisible(False)
+
     def hide_placeholder(self):
-        """플레이스홀더 숨김"""
-        if self.placeholder_label and self.placeholder_label.parent():
-            self.main_layout.removeWidget(self.placeholder_label)
-            self.placeholder_label.hide()
-        
-        # 스크롤 영역 표시
+        """플레이с홀더 숨김"""
+        if self.placeholder_label:
+            self.placeholder_label.setVisible(False)
         if self.scroll_area:
-            self.scroll_area.show()
+            self.scroll_area.setVisible(True)
     
     def can_add_more_items(self) -> bool:
         """더 많은 아이템을 추가할 수 있는지 확인"""

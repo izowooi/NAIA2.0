@@ -11,12 +11,13 @@ class ClonedStoryItem(QWidget):
     """
     remove_requested = pyqtSignal(object)  # 제거 요청 시그널
     
-    def __init__(self, original_widget, parent=None):
+    def __init__(self, original_widget, origin_tag: str, parent=None):
         super().__init__(parent)
         
         # 고유 식별자
         self.instance_id = str(uuid.uuid4())
         self.variable_name = original_widget.variable_name
+        self.origin_tag = origin_tag
         
         # 원본 데이터 깊은 복사
         self.data = copy.deepcopy(original_widget.data)
@@ -206,18 +207,34 @@ class ClonedStoryItem(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """드래그 시작 감지 및 처리"""
-        if not (event.buttons() & Qt.MouseButton.LeftButton):
-            return
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            # 드래그 거리 확인 (최소 거리 이상 움직였을 때만 드래그 시작)
+            if hasattr(self, 'drag_start_position'):
+                distance = (event.pos() - self.drag_start_position).manhattanLength()
+                if distance < 10:  # 최소 드래그 거리
+                    return
 
-        # 드래그 거리 확인 (최소 거리 이상 움직였을 때만 드래그 시작)
-        if hasattr(self, 'drag_start_position'):
-            distance = (event.pos() - self.drag_start_position).manhattanLength()
-            if distance < 10:  # 최소 드래그 거리
-                return
-
-        # 드래그 시작
-        self.start_drag(event)
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            
+            # ▼▼▼▼▼ [수정] 드래그 데이터에 전체 데이터(self.data) 포함 ▼▼▼▼▼
+            drag_data = {
+                "source": "ClonedStoryItem",
+                "instance_id": self.instance_id,
+                "variable_name": self.variable_name,
+                "isCharacter": self.isCharacter,
+                "origin_tag": self.origin_tag,
+                "full_data": self.data # 필요한 모든 데이터를 여기에 담음
+            }
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            mime_data.setText(json.dumps(drag_data))
+            drag.setMimeData(mime_data)
+            
+            drag_pixmap = self.create_drag_pixmap()
+            drag.setPixmap(drag_pixmap)
+            drag.setHotSpot(event.pos())
+            
+            drag.exec(Qt.DropAction.MoveAction)
 
     def start_drag(self, event: QMouseEvent):
         """드래그 앤 드롭 시작"""
@@ -229,7 +246,8 @@ class ClonedStoryItem(QWidget):
             "source": "ClonedStoryItem",
             "instance_id": self.instance_id,
             "variable_name": self.variable_name,
-            "isCharacter": self.isCharacter  # 새로 추가
+            "isCharacter": self.isCharacter,
+            "origin_tag": self.origin_tag 
         }
         mime_data.setText(json.dumps(drag_data))
         drag.setMimeData(mime_data)
@@ -403,4 +421,15 @@ class ClonedStoryItem(QWidget):
             "size": f"{self.width()}x{self.height()}",
             "position": f"({self.x()}, {self.y()})",
             "has_pixmap": self.original_pixmap is not None and not self.original_pixmap.isNull()
+        }
+    
+    def get_data(self) -> dict:
+        """자신의 데이터를 저장 가능한 딕셔너리 형태로 반환합니다."""
+        return {
+            "instance_id": self.instance_id,
+            "variable_name": self.variable_name,
+            "origin_tag": self.origin_tag,
+            "isCharacter": self.isCharacter,
+            "appendix_enabled": self.appendix_enabled,
+            "full_data": self.data
         }

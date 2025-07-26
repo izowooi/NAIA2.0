@@ -31,7 +31,7 @@ class StoryItemWidget(QFrame):
 
     def init_ui(self):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setFixedSize(128, 160)
+        self.setFixedSize(128, 145)
         self.setStyleSheet(f"""
             StoryItemWidget {{
                 background-color: {DARK_COLORS['bg_secondary']};

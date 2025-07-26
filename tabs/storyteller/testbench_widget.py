@@ -1,26 +1,28 @@
-import json
+import json, base64
 from pathlib import Path
 from PyQt6.QtWidgets import QFrame, QLabel
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 
 from ui.theme import DARK_COLORS
 from tabs.storyteller.cloned_story_item import ClonedStoryItem
 from tabs.storyteller.testbench_layout_manager import TestbenchLayoutManager
 
 class TestbenchWidget(QFrame):
-    def __init__(self, storyteller_tab, parent=None):
+    def __init__(self, storyteller_tab, config: dict, parent=None):
         super().__init__(parent)
         self.storyteller_tab = storyteller_tab
+        self.placeholder_text = config.get('placeholder_text', "Drop items here...")
+        self.accept_filter = config.get('accept_filter')
+        self.origin_tag = config.get('origin_tag', 'default_bench')
         self.setAcceptDrops(True)
-        
-        # 디버깅을 위한 카운터
-        self.clone_counter = 0
-        
-        # 새로운 single-row 레이아웃 매니저 사용
-        self.layout_manager = TestbenchLayoutManager(self)
+
+        self.clone_counter = 0  # 복제된 아이템 카운터
         
         self.init_ui()
+        
+        ui_elements = {'placeholder_label': self.placeholder_label}
+        self.layout_manager = TestbenchLayoutManager(self, ui_elements)
 
     def init_ui(self):
         self.setStyleSheet(f"""
@@ -31,7 +33,16 @@ class TestbenchWidget(QFrame):
             }}
         """)
         
-        # 레이아웃 매니저가 이미 초기화되었으므로 추가 설정 불필요
+        self.placeholder_label = QLabel(self.placeholder_text, self)
+        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder_label.setStyleSheet(f"""
+            color: {DARK_COLORS['text_secondary']}; 
+            border: none; 
+            font-size: 14px; 
+            font-style: normal; 
+            background-color: transparent;
+        """)
+        self.placeholder_label.setFixedHeight(160)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """드래그 진입 시 검증"""
@@ -42,20 +53,17 @@ class TestbenchWidget(QFrame):
                 source_type = data.get("source")
                 
                 if source_type in ["StoryItemWidget", "ClonedStoryItem"]:
-                    # 아이템 수 제한 확인 (새 아이템 추가인 경우)
+                    # 필터 함수가 있으면, 필터를 통과하는지 확인
+                    if self.accept_filter and not self.accept_filter(data):
+                        event.ignore()
+                        return
+
                     if source_type == "StoryItemWidget" and not self.layout_manager.can_add_more_items():
                         event.ignore()
                         return
                     
                     event.acceptProposedAction()
-                    # 드래그 중 시각적 피드백
-                    self.setStyleSheet(f"""
-                        TestbenchWidget {{ 
-                            border: 2px dashed {DARK_COLORS['accent_blue']}; 
-                            border-radius: 8px; 
-                            background-color: {DARK_COLORS['bg_secondary']}; 
-                        }}
-                    """)
+                    self.setStyleSheet(f"border: 2px dashed {DARK_COLORS['accent_blue']}; border-radius: 8px; background-color: {DARK_COLORS['bg_secondary']};")
                 else:
                     event.ignore()
             except (json.JSONDecodeError, KeyError):
@@ -141,7 +149,7 @@ class TestbenchWidget(QFrame):
         
         # 복제본 생성
         try:
-            cloned_widget = ClonedStoryItem(original_widget, parent=self)
+            cloned_widget = ClonedStoryItem(original_widget, origin_tag=self.origin_tag, parent=self)
             
             # 제거 시그널 연결
             cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
@@ -220,6 +228,83 @@ class TestbenchWidget(QFrame):
         """모든 복제된 아이템 반환 (외부 접근용)"""
         return self.layout_manager.get_all_items()
 
+    def get_prompts_for_item(self, item: ClonedStoryItem) -> str | str:
+        """특정 ClonedStoryItem의 positive, negative 프롬프트를 반환합니다."""
+        if hasattr(item, 'data') and isinstance(item.data, dict):
+            description = item.data.get("description", {})
+            positive = description.get("positive_prompt", "").strip()
+            negative = description.get("negative_prompt", "").strip()
+            return positive, negative
+        return "", ""
+
     def is_full(self) -> bool:
         """Testbench가 가득 찬 상태인지 확인"""
         return not self.layout_manager.can_add_more_items()
+    
+    def get_all_prompts(self) -> str| str:
+        """Testbench 내 모든 ClonedStoryItem의 프롬프트를 조합하여 반환합니다."""
+        all_positive = []
+        all_negative = []
+        
+        items = self.layout_manager.get_all_items()
+        for item in items:
+            if hasattr(item, 'data') and isinstance(item.data, dict):
+                description = item.data.get("description", {})
+                
+                positive = description.get("positive_prompt", "").strip()
+                if positive:
+                    all_positive.append(positive)
+                
+                negative = description.get("negative_prompt", "").strip()
+                if negative:
+                    all_negative.append(negative)
+                    
+        return ", ".join(all_positive), ", ".join(all_negative)
+    
+    def clear_items(self):
+        """Testbench의 모든 아이템을 제거합니다."""
+        all_items = self.layout_manager.get_all_items()
+        for item in all_items:
+            if self.layout_manager.remove_item(item):
+                item.deleteLater()
+        self.layout_manager._update_layout()
+
+    def get_items_data(self) -> list[dict]:
+        """Testbench의 모든 아이템 데이터를 리스트로 반환합니다."""
+        items_data = []
+        all_items = self.layout_manager.get_all_items()
+        for item in all_items:
+            if hasattr(item, 'get_data'):
+                items_data.append(item.get_data())
+        return items_data
+
+    def add_item_from_data(self, item_data: dict):
+        """딕셔너리 데이터로부터 ClonedStoryItem을 생성하여 추가합니다."""
+        try:
+            full_data = item_data.get("full_data", {})
+            variable_name = item_data.get("variable_name")
+            origin_tag = item_data.get("origin_tag")
+            
+            # 원본 StoryItemWidget을 임시로 생성하여 ClonedStoryItem에 전달
+            from tabs.storyteller.story_item_widget import StoryItemWidget
+            temp_original = StoryItemWidget(group_path="", variable_name=variable_name)
+            temp_original.data = full_data
+            
+            # 원본 썸네일 정보 로드
+            thumbnail_b64 = full_data.get("thumbnail_base64")
+            if thumbnail_b64:
+                pixmap = QPixmap()
+                pixmap.loadFromData(base64.b64decode(thumbnail_b64), "PNG")
+                temp_original.thumbnail_label.setPixmap(pixmap)
+            
+            cloned_widget = ClonedStoryItem(temp_original, origin_tag=origin_tag, parent=self)
+            cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
+            self.layout_manager.add_item(cloned_widget)
+        except Exception as e:
+            print(f"Error adding item from data: {e}")
+
+    def load_from_data(self, items_data: list):
+        """딕셔너리 리스트로 Testbench의 상태를 완전히 복원합니다."""
+        self.clear_items()
+        for item_data in items_data:
+            self.add_item_from_data(item_data)
