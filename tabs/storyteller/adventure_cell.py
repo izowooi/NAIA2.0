@@ -446,22 +446,20 @@ class Cell(QFrame):
         self.character_drop_zone.setVisible(len(self.character_frames) < 6)
 
     def get_data(self) -> dict:
-        """이 Cell의 UI 상태를 저장/복제용 딕셔너리로 반환합니다."""
-        res_text = self.resolution_combo.currentText()
-        width, height = map(int, res_text.split('x'))
-        
+        character_frames_data = [frame.get_data() for frame in self.character_frames]
+        options_data = {
+            "resolution_text": self.resolution_combo.currentText(),
+            "seed_reuse": self.seed_reuse_checkbox.isChecked()
+        }
         return {
             "id": self.id,
             "main_prompt": {
                 "positive": self.positive_prompt_edit.toPlainText(),
                 "negative": self.negative_prompt_edit.toPlainText()
             },
-            "options": {
-                "width": width, "height": height,
-                "seed_reuse": self.seed_reuse_checkbox.isChecked()
-            },
+            "options": options_data,
             "global_testbench_items": self.global_events_testbench.get_items_data(),
-            "character_frames": [frame.get_data() for frame in self.character_frames]
+            "character_frames": character_frames_data
         }
 
     def update_index_label(self):
@@ -496,7 +494,7 @@ class Cell(QFrame):
         self.positive_prompt_edit.setText(main_prompt.get("positive", ""))
         self.negative_prompt_edit.setText(main_prompt.get("negative", ""))
         options = data.get("options", {})
-        self.resolution_combo.setCurrentText(f"{options.get('width', 1024)}x{options.get('height', 1024)}")
+        self.resolution_combo.setCurrentText(options.get("resolution_text", "1024 x 1024"))
         self.seed_reuse_checkbox.setChecked(options.get("seed_reuse", False))
 
         # 2. Global Testbench 복원
@@ -547,7 +545,11 @@ class Cell(QFrame):
 
         # 4 & 5. 옵션 수집 (해상도, 시드 재사용)
         res_text = self.resolution_combo.currentText()
-        width, height = map(int, res_text.split('x'))
+        try:
+            width, height = map(int, res_text.replace(" ", "").split('x'))
+        except ValueError:
+            width, height = 1024, 1024 # 파싱 실패 시 기본값
+            
         options_data = {
             "width": width, "height": height,
             "seed_reuse": self.seed_reuse_checkbox.isChecked()
