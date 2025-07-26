@@ -5,10 +5,10 @@ import re
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QPushButton, QLabel, 
-    QTextEdit, QScrollArea, QSizePolicy, QSplitter, QComboBox, QCheckBox, QGridLayout
+    QTextEdit, QScrollArea, QSizePolicy, QSplitter, QComboBox, QCheckBox, QGridLayout, QMenu
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QSize
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QPainter, QColor
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QSize, pyqtSignal, QPoint
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QPainter, QColor, QAction, QMouseEvent
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from ui.theme import DARK_STYLES, DARK_COLORS, CUSTOM
@@ -65,6 +65,8 @@ class StableImageWidget(QWidget):
 
 
 class CharacterWidget(QFrame):
+    context_menu_requested = pyqtSignal(QPoint)
+
     def __init__(self, character_data, variable_name, parent=None):
         super().__init__(parent)
         self.character_data = character_data
@@ -123,12 +125,19 @@ class CharacterWidget(QFrame):
         self.name_label.setText(variable_name)
         self.load_character_display() # 썸네일 새로고침
 
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.RightButton:
+            self.context_menu_requested.emit(event.globalPosition().toPoint())
+        super().mousePressEvent(event)
+
 class CharacterFrame(QFrame):
     remove_requested = pyqtSignal(object)
+    swap_requested = pyqtSignal(str, str) # source_name, target_name
 
     def __init__(self, character_full_data: dict, variable_name: str, storyteller_tab, parent=None):
         super().__init__(parent)
         self.setFixedHeight(180)
+        self.storyteller_tab = storyteller_tab
         
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0,0,0,0)
@@ -169,6 +178,33 @@ class CharacterFrame(QFrame):
         # 6. 메인 레이아웃에 왼쪽 패널 레이아웃과 테스트벤치 추가
         main_layout.addLayout(left_panel_layout)
         main_layout.addWidget(self.testbench, 1)
+
+        self.char_widget.context_menu_requested.connect(self.show_swap_context_menu)
+
+    def show_swap_context_menu(self, global_pos: QPoint):
+        adventure_tab: AdventureTab = self.storyteller_tab.right_panel.widget(1)
+        if not hasattr(adventure_tab, 'character_testbench'): return
+            
+        # character_testbench에서 현재 캐릭터를 제외한 목록 가져오기
+        other_items = adventure_tab.character_testbench.get_other_items(self.char_widget.variable_name)
+        if not other_items: return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"QMenu {{ background-color: {DARK_COLORS['bg_tertiary']}; color: white; border: 1px solid #555; }} QMenu::item:selected {{ background-color: {DARK_COLORS['accent_blue']}; }}")
+        
+        title_action = QAction("Switch to...", self); title_action.setEnabled(False)
+        menu.addAction(title_action)
+        menu.addSeparator()
+
+        for item in other_items:
+            action = QAction(item.variable_name, self)
+            action.triggered.connect(
+                lambda checked=False, target_name=item.variable_name:
+                self.swap_requested.emit(self.char_widget.variable_name, target_name)
+            )
+            menu.addAction(action)
+        
+        menu.exec(global_pos)
 
     def get_data(self) -> dict:
         return {
@@ -395,7 +431,7 @@ class Cell(QFrame):
 
         new_frame = CharacterFrame(character_full_data, variable_name, self.manager.storyteller_tab)
         new_frame.remove_requested.connect(self.remove_character_frame)
-        
+        new_frame.swap_requested.connect(self.manager.handle_character_swap)
         self.left_layout.insertWidget(self.left_layout.indexOf(self.character_drop_zone), new_frame)
         self.character_frames.append(new_frame)
         
@@ -967,38 +1003,36 @@ class CellManager(QWidget):
             print(f"❌ 교체할 대상 '{target_name}'을 찾을 수 없습니다.")
             return
 
+        swapped_or_replaced = False
         for cell in self.cells:
             source_frame, target_frame = None, None
+            source_index, target_index = -1, -1
 
-            # 1. 현재 Cell에서 source와 target 프레임을 모두 찾습니다.
-            for frame in cell.character_frames:
+            for i, frame in enumerate(cell.character_frames):
                 if frame.char_widget.variable_name == source_name:
-                    source_frame = frame
+                    source_frame, source_index = frame, i
                 elif frame.char_widget.variable_name == target_name:
-                    target_frame = frame
+                    target_frame, target_index = frame, i
 
             if source_frame and target_frame:
-                # --- Swap 로직: source와 target이 모두 Cell에 있을 경우 ---
+                # --- Swap 로직 ---
                 print(f"  - Cell [{self.get_cell_index(cell) + 1}]에서 Swap 실행")
                 source_item = adventure_tab.find_character_in_bench(source_name)
                 if not source_item: continue
 
-                # 각 CharacterWidget의 내용만 서로 교체
                 source_frame.char_widget.update_character(target_item.data, target_item.variable_name)
                 target_frame.char_widget.update_character(source_item.data, source_item.variable_name)
-                
-                self.app_context.main_window.status_bar.showMessage(f"✅ '{source_name}'↔'{target_name}' 캐릭터 교체 완료.", 3000)
-                return
+                swapped_or_replaced = True
 
             elif source_frame:
-                # --- Replace 로직: source만 Cell에 있을 경우 ---
+                # --- Replace 로직 ---
                 print(f"  - Cell [{self.get_cell_index(cell) + 1}]에서 Replace 실행")
-                
-                # CharacterFrame을 교체하는 대신, 내부 CharacterWidget의 내용만 업데이트
                 source_frame.char_widget.update_character(target_item.data, target_item.variable_name)
-                
-                self.app_context.main_window.status_bar.showMessage(f"✅ '{source_name}'가 '{target_name}'(으)로 교체되었습니다.", 3000)
-                return
+                swapped_or_replaced = True
+
+        # ▼▼▼▼▼ [수정] 모든 루프가 끝난 후 상태 메시지 한 번만 표시 ▼▼▼▼▼
+        if swapped_or_replaced:
+            self.app_context.main_window.status_bar.showMessage(f"✅ '{source_name}' 캐릭터 관련 프레임 업데이트 완료.", 3000)
             
     def clear_all_cells(self):
         """모든 Cell을 제거하고 초기 상태로 되돌립니다."""

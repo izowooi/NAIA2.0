@@ -298,8 +298,10 @@ class TestbenchWidget(QFrame):
                 pixmap.loadFromData(base64.b64decode(thumbnail_b64), "PNG")
                 temp_original.thumbnail_label.setPixmap(pixmap)
             
-            cloned_widget = ClonedStoryItem(temp_original, origin_tag=origin_tag, parent=self)
+            cloned_widget = ClonedStoryItem(temp_original, origin_tag=origin_tag, parent_bench=self, parent=self)
             cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
+            cloned_widget.swap_requested.connect(self._on_item_swap_requested) # 누락된 시그널 연결 추가
+
             self.layout_manager.add_item(cloned_widget)
         except Exception as e:
             print(f"Error adding item from data: {e}")
@@ -311,29 +313,6 @@ class TestbenchWidget(QFrame):
             if self.layout_manager.remove_item(item):
                 item.deleteLater()
         self.layout_manager._update_layout()
-
-    def add_item_from_data(self, item_data: dict):
-        """딕셔너리 데이터로부터 ClonedStoryItem을 생성하여 추가합니다."""
-        try:
-            full_data = item_data.get("full_data", {})
-            variable_name = item_data.get("variable_name")
-            origin_tag = item_data.get("origin_tag")
-            
-            from tabs.storyteller.story_item_widget import StoryItemWidget
-            temp_original = StoryItemWidget(group_path="", variable_name=variable_name)
-            temp_original.data = full_data
-            
-            thumbnail_b64 = full_data.get("thumbnail_base64")
-            if thumbnail_b64:
-                pixmap = QPixmap()
-                pixmap.loadFromData(base64.b64decode(thumbnail_b64), "PNG")
-                temp_original.thumbnail_label.setPixmap(pixmap)
-            
-            cloned_widget = ClonedStoryItem(temp_original, origin_tag=origin_tag, parent=self)
-            cloned_widget.remove_requested.connect(self._on_remove_clone_requested)
-            self.layout_manager.add_item(cloned_widget)
-        except Exception as e:
-            print(f"Error adding item from data: {e}")
 
     def load_from_data(self, items_data: list):
         """딕셔너리 리스트로 Testbench의 상태를 완전히 복원합니다."""

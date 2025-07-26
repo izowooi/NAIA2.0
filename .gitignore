@@ -138,3 +138,5 @@ NAIA_api_timestamps.json
 naia_temp_rows.parquet
 tabs/hooker/filter_dict/clothes.txt
 tabs/storyteller/save.json
+/tabs/storyteller/default
+/tabs/storyteller/global
