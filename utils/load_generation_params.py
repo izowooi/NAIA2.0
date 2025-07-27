@@ -575,7 +575,7 @@ class GenerationParamsManager:
                 print("⚠️ WEBUI URL이 설정되지 않았습니다.")
                 return
             if not webui_url.startswith("http"):
-                webui_url = "https://" + webui_url
+                webui_url = "https://" + webui_url if "127.0" not in webui_url else "http://" + webui_url
             
             mw = self.main_window
             

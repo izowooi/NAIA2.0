@@ -195,7 +195,10 @@ class APIService:
             if not webui_url:
                 raise ValueError("WEBUI URL이 제공되지 않았습니다.")
             if not webui_url.startswith("http"):
-                webui_url = f"https://{webui_url}"
+                if "127.0" not in webui_url:
+                    webui_url = f"https://{webui_url}"
+                else:
+                    webui_url = f"http://{webui_url}"
             
             # WEBUI API 엔드포인트 URL 구성
             api_endpoint = f"{webui_url}/sdapi/v1/txt2img"

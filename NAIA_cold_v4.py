@@ -1971,7 +1971,8 @@ class ModernMainWindow(QMainWindow):
         url = url.replace('http://', '').replace('https://', '').rstrip('/')
         # just checking connection, so any api is okay.
         try:
-            res = requests.get(f"https://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
+            if "127.0" not in url: res = requests.get(f"https://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
+            else: res = requests.get(f"http://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
             if res.status_code == 200 and 'progress' in res.json():
                 return f'https://{url}'
             else:
