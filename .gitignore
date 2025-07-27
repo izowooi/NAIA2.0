@@ -132,7 +132,6 @@ secrets.json
 *.rar
 *.7z
 run_NAIA_test_only.bat
-py_file_merger.py
 NAIA_api_timestamps.json
 /output
 naia_temp_rows.parquet
@@ -140,3 +139,4 @@ tabs/hooker/filter_dict/clothes.txt
 tabs/storyteller/save.json
 /tabs/storyteller/default
 /tabs/storyteller/global
+/ui/hooker/filter_dict
