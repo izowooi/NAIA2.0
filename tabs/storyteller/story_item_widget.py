@@ -4,8 +4,8 @@ from pathlib import Path
 import base64
 from io import BytesIO
 
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel
-from PyQt6.QtGui import QPixmap, QMouseEvent, QDrag
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QMenu, QApplication
+from PyQt6.QtGui import QPixmap, QMouseEvent, QDrag, QAction
 from PyQt6.QtCore import Qt, QSize, QMimeData, QBuffer, QIODevice, pyqtSignal
 
 from ui.theme import DARK_COLORS
@@ -30,6 +30,8 @@ class StoryItemWidget(QFrame):
         self.load_data()
 
     def init_ui(self):
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)        
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedSize(128, 145)
         self.setStyleSheet(f"""
@@ -139,3 +141,38 @@ class StoryItemWidget(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.edit_requested.emit(self)
         super().mouseDoubleClickEvent(event)
+
+    def show_context_menu(self, event_pos):
+        """우클릭 시 컨텍스트 메뉴를 표시합니다."""
+        # 프롬프트 데이터 추출
+        positive_prompt = self.data.get("description", {}).get("positive_prompt", "")
+        negative_prompt = self.data.get("description", {}).get("negative_prompt", "")
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{ background-color: #333; color: white; border: 1px solid #555; }}
+            QMenu::item:selected {{ background-color: #555; }}
+        """)
+
+        # Positive Prompt 복사 액션
+        if positive_prompt:
+            copy_positive_action = QAction("Copy Positive Prompt", self)
+            copy_positive_action.triggered.connect(lambda: self.copy_to_clipboard(positive_prompt))
+            menu.addAction(copy_positive_action)
+
+        # Negative Prompt 복사 액션
+        if negative_prompt:
+            copy_negative_action = QAction("Copy Negative Prompt", self)
+            copy_negative_action.triggered.connect(lambda: self.copy_to_clipboard(negative_prompt))
+            menu.addAction(copy_negative_action)
+
+        # 표시할 메뉴가 있을 경우에만 메뉴를 엽니다.
+        if menu.actions():
+            menu.exec(self.mapToGlobal(event_pos))
+
+    # --- [신규] 클립보드 복사 헬퍼 메서드 ---
+    def copy_to_clipboard(self, text: str):
+        """주어진 텍스트를 클립보드에 복사합니다."""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        print(f"📋 클립보드에 복사됨: \"{text[:30]}...\"")

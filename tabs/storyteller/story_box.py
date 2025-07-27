@@ -149,6 +149,14 @@ class StoryBox(QWidget):
         self.is_collapsed = not checked
         self.toggle_button.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
         self.description_label.setVisible(checked and bool(self.description))
+        if checked:
+            self.content_area.setMinimumHeight(300)
+            self.content_area.setMaximumHeight(16777215) # QWidget의 최대 높이 상수
+            self.expanded.emit(self)
+        else:
+            self.content_area.setMinimumHeight(0)
+            self.content_area.setMaximumHeight(0)
+            self.collapsed.emit(self)
         self.content_area.setVisible(checked)
         if checked: self.expanded.emit(self)
         else: self.collapsed.emit(self)
