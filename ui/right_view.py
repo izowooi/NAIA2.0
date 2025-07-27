@@ -57,8 +57,9 @@ class RightView(QWidget):
     TabController를 통해 모든 탭을 동적으로 관리합니다.
     """
     # Main window로 전달될 시그널들
-    instant_generation_requested = pyqtSignal(object)
+    instant_generation_requested = pyqtSignal(dict)
     load_prompt_to_main_ui = pyqtSignal(str)
+    generate_with_image_requested = pyqtSignal(dict)
 
     def __init__(self, app_context, parent=None):
         super().__init__(parent)
@@ -89,6 +90,18 @@ class RightView(QWidget):
                 image_viewer_module.load_prompt_to_main_ui.connect(self.load_prompt_to_main_ui)
         else:
             print("⚠️ ImageViewerModule 인스턴스를 찾을 수 없어 시그널 연결에 실패했습니다.")
+
+        # Browser Tab
+        browser_module = self.tab_controller.get_tab_instance('BrowserTabModule')
+        if browser_module:
+            if hasattr(browser_module, 'instant_generation_requested'):
+                browser_module.instant_generation_requested.connect(self.instant_generation_requested)
+                print("✅ BrowserTabModule의 instant_generation_requested 시그널이 연결되었습니다.")
+            if hasattr(browser_module, 'generate_with_image_requested'):
+                browser_module.generate_with_image_requested.connect(self.generate_with_image_requested)
+        else:
+            print("⚠️ BrowserTabModule 인스턴스를 찾을 수 없어 시그널 연결에 실패했습니다.")
+
 
     def init_ui(self):
         """기본 UI 구조 초기화"""

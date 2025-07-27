@@ -1,8 +1,9 @@
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineSettings
-from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QTextEdit
+from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, QTimer
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QTextEdit, QFrame
 from interfaces.base_tab_module import BaseTabModule
+from ui.theme import DARK_STYLES, DARK_COLORS
 import os
 import sys
 import re
@@ -10,6 +11,7 @@ import json
 
 class BrowserTabModule(BaseTabModule):
     """'Danbooru' 브라우저 탭을 위한 모듈"""
+    generate_with_image_requested = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
@@ -24,19 +26,24 @@ class BrowserTabModule(BaseTabModule):
     def create_widget(self, parent: QWidget) -> QWidget:
         if self.browser_widget is None:
             self.browser_widget = BrowserTab(parent)
-            # Danbooru 태그 추출 시그널을 instant_generation_requested 시그널에 연결
-            self.browser_widget.tags_extracted.connect(self.instant_generation_requested)
-            self.browser_widget.load_url("https://danbooru.donmai.us/")
+            self.browser_widget.generate_prompt_requested.connect(self.instant_generation_requested)
+            self.browser_widget.generate_with_image_requested.connect(self.generate_with_image_requested)
+            # ✅ URL 로드를 위젯 생성 직후가 아닌 약간 지연해서 실행
+            QTimer.singleShot(100, lambda: self.browser_widget.load_url("https://danbooru.donmai.us/"))
         return self.browser_widget
 
 class BrowserTab(QWidget):
     # 태그 추출 완료 시그널
-    tags_extracted = pyqtSignal(dict)
+    generate_prompt_requested = pyqtSignal(dict)
+    generate_with_image_requested = pyqtSignal(dict)
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.init_ui()
+        # ✅ 순서 변경: 프로필 설정을 UI 초기화보다 먼저
         self.setup_selective_storage()
+        self.init_ui()
+        self.characteristic = self._load_list_from_file()
+        self.extracted_tags_data = {}
         
     def init_ui(self):
         """UI 초기화"""
@@ -55,62 +62,73 @@ class BrowserTab(QWidget):
         self.forward_button = QPushButton("→")
         self.refresh_button = QPushButton("⟳")
         
-        # Danbooru 태그 추출 버튼
-        self.extract_tags_button = QPushButton("📝 태그 추출")
-        self.extract_tags_button.clicked.connect(self.extract_danbooru_tags)
-        self.extract_tags_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 5px 10px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
-        
         address_layout.addWidget(self.back_button)
         address_layout.addWidget(self.forward_button)
         address_layout.addWidget(self.refresh_button)
         address_layout.addWidget(self.address_bar)
         address_layout.addWidget(self.go_button)
-        address_layout.addWidget(self.extract_tags_button)
-        
         main_layout.addLayout(address_layout)
         
-        # 웹뷰 생성
+        # ✅ 웹뷰 생성 시점 변경: 프로필이 이미 설정된 상태에서 생성
         self.browser = QWebEngineView()
-        main_layout.addWidget(self.browser)
-        
-        # 태그 추출 결과 표시 영역 (숨김 상태로 시작)
+        self.browser.setPage(self.page)  # 이미 생성된 페이지 설정
+        main_layout.addWidget(self.browser, 1)
+
+        # --- 하단 패널 ---
+        bottom_panel = QFrame()
+        bottom_panel_layout = QVBoxLayout(bottom_panel)
+        bottom_panel_layout.setContentsMargins(0, 8, 0, 0)
+
+        # 태그 추출 결과 표시 영역 (기본 숨김)
         self.tags_display = QTextEdit()
-        self.tags_display.setMaximumHeight(200)
+        self.tags_display.setFixedHeight(150)
         self.tags_display.setReadOnly(True)
-        self.tags_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #f5f5f5;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                font-family: Consolas, Monaco, monospace;
-                font-size: 11px;
-            }
-        """)
+        self.tags_display.setStyleSheet(f"{DARK_STYLES['compact_textedit']} font-size: 16px;")
         self.tags_display.setPlaceholderText("Danbooru 페이지에서 '📝 태그 추출' 버튼을 클릭하세요...")
-        self.tags_display.hide()  # 초기에는 숨김
-        main_layout.addWidget(self.tags_display)
+        self.tags_display.setVisible(False)
+        bottom_panel_layout.addWidget(self.tags_display)
+
+        # 하단 버튼 레이아웃 (항상 보임)
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+
+        self.extract_tags_button = QPushButton("📝 태그 추출")
+        self.extract_tags_button.clicked.connect(self.extract_danbooru_tags)
         
-        # 신호 연결
+        self.generate_prompt_button = QPushButton("프롬프트 생성")
+        self.generate_prompt_button.setStyleSheet(f"{DARK_STYLES['primary_button']} background-color: {DARK_COLORS['accent_blue']};")
+        self.generate_prompt_button.clicked.connect(self._on_generate_prompt_clicked)
+        self.generate_prompt_button.setVisible(False)
+
+        self.generate_with_image_button = QPushButton("프롬프트+이미지 생성")
+        self.generate_with_image_button.setStyleSheet(f"{DARK_STYLES['primary_button']} background-color: {DARK_COLORS['warning']};")
+        self.generate_with_image_button.clicked.connect(self._on_generate_with_image_clicked)
+        self.generate_with_image_button.setVisible(False)
+        
+        self.close_button = QPushButton("닫기")
+        self.close_button.setStyleSheet(DARK_STYLES['secondary_button'])
+        self.close_button.clicked.connect(self._hide_generation_widgets)
+
+        button_layout.addWidget(self.extract_tags_button)
+        button_layout.addStretch(1)
+        button_layout.addWidget(self.generate_prompt_button)
+        button_layout.addWidget(self.generate_with_image_button)
+        button_layout.addWidget(self.close_button)
+
+        bottom_panel_layout.addLayout(button_layout)
+        main_layout.addWidget(bottom_panel)
+
         self.back_button.clicked.connect(self.browser.back)
         self.forward_button.clicked.connect(self.browser.forward)
         self.refresh_button.clicked.connect(self.browser.reload)
         self.browser.urlChanged.connect(self.update_address_bar)
         
+        self.update_address_bar(self.browser.url())
+        
     def setup_selective_storage(self):
         """Danbooru 로그인 정보만 저장하는 선택적 스토리지 설정"""
         try:
-            # 커스텀 프로필 생성
+            # ✅ 프로필과 페이지를 먼저 생성
             app_data_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
             profile_path = os.path.join(app_data_path, "browser_profile")
             os.makedirs(profile_path, exist_ok=True)
@@ -124,9 +142,8 @@ class BrowserTab(QWidget):
                 QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
             )
             
-            # 새 페이지 생성하고 프로필 할당
-            self.page = QWebEnginePage(self.profile, self.browser)
-            self.browser.setPage(self.page)
+            # ✅ 페이지를 미리 생성해서 인스턴스 변수로 저장
+            self.page = QWebEnginePage(self.profile)
             
             # 기본 웹 설정
             settings = self.page.settings()
@@ -158,38 +175,33 @@ class BrowserTab(QWidget):
         self.load_url(url)
     
     def update_address_bar(self, qurl):
-        """주소창 업데이트"""
         self.address_bar.setText(qurl.toString())
         
-        # Danbooru 페이지인지 확인하여 태그 추출 버튼 상태 변경
         url_str = qurl.toString()
         pattern = r'danbooru\.donmai\.us/posts/(\d+)'
-        if re.search(pattern, url_str):
-            self.extract_tags_button.setEnabled(True)
-            self.extract_tags_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #4CAF50;
-                    color: white;
-                    font-weight: bold;
+        is_danbooru_post = bool(re.search(pattern, url_str))
+        
+        self.extract_tags_button.setEnabled(is_danbooru_post)
+        
+        # ▼▼▼▼▼ [수정] 버튼 스타일을 상태에 따라 명확하게 분리 ▼▼▼▼▼
+        if is_danbooru_post:
+            # 활성화 상태 (녹색)
+            self.extract_tags_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {DARK_COLORS['success']};
+                    border: 1px solid {DARK_COLORS['border']};
                     border-radius: 4px;
-                    padding: 5px 10px;
-                }
-                QPushButton:hover {
-                    background-color: #45a049;
-                }
+                    padding: 8px 16px;
+                    font-weight: 500;
+                    color: {DARK_COLORS['text_primary']};
+                    font-size: 20px;
+                }}
+                QPushButton:hover {{ background-color: #5CBF60; }}
             """)
         else:
-            self.extract_tags_button.setEnabled(False)
-            self.extract_tags_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #cccccc;
-                    color: #666666;
-                    font-weight: bold;
-                    border-radius: 4px;
-                    padding: 5px 10px;
-                }
-            """)
-        
+            self._hide_generation_widgets()
+            self.extract_tags_button.setStyleSheet(DARK_STYLES['secondary_button'])
+
     def load_url(self, url):
         """URL 로드"""
         if isinstance(url, str):
@@ -227,7 +239,6 @@ class BrowserTab(QWidget):
         """JavaScript에서 받은 페이지 데이터 처리"""
         if not page_data:
             self.tags_display.setText("❌ 페이지 데이터를 가져올 수 없습니다.")
-            # self.tags_display.show()
             return
         
         try:
@@ -243,22 +254,20 @@ class BrowserTab(QWidget):
                 
             if not post_id:
                 self.tags_display.setText("❌ 포스트 ID를 찾을 수 없습니다.")
-                # self.tags_display.show()
                 return
             
             # HTML에서 태그 추출
             html = page_data['html']
             tags_data = self.parse_danbooru_tags(html, post_id)
             
+            # ✅ 핵심 수정: 추출된 태그 데이터를 인스턴스 변수에 저장
+            self.extracted_tags_data = tags_data
+            
             # 결과 표시
             self.display_extracted_tags(tags_data)
             
-            # 시그널 발송
-            # self.tags_extracted.emit(tags_data)
-            
         except Exception as e:
             self.tags_display.setText(f"❌ 태그 추출 중 오류 발생: {str(e)}")
-            # self.tags_display.show()
     
     def parse_danbooru_tags(self, html, post_id):
         """HTML에서 Danbooru 태그 정보 파싱"""
@@ -305,33 +314,68 @@ class BrowserTab(QWidget):
         return tags_data
     
     def display_extracted_tags(self, tags_data):
-        """추출된 태그 정보를 표시"""
-        result_text = f"🎯 Danbooru 태그 추출 결과 (ID: {tags_data['id']})\n"
-        result_text += "=" * 50 + "\n\n"
+        """추출된 태그를 UI에 표시"""
+        result_text = ""
+        cs = tags_data.get('character', [])
+        gs = tags_data.get('general', [])
+        cs = [tag.replace("_", " ") for tag in cs]
+        gs = [tag.replace("_", " ") for tag in gs]
+        tags_to_move = [tag for tag in gs if tag in self.characteristic]
+        for tag in tags_to_move:
+            cs.append(tag)
+            gs.remove(tag)
+        cs_str = ', '.join(cs)
+        gs_str = ', '.join(gs)
+        result_text = f"CHARACTER : {cs_str}\n\nGENERAL : {gs_str}"
         
-        for category, tags in tags_data.items():
-            if category == 'id':
-                continue
-                
-            result_text += f"📌 {category.upper()}:\n"
-            if tags:
-                for tag in tags:
-                    result_text += f"   • {tag}\n"
-            else:
-                result_text += "   (없음)\n"
-            result_text += "\n"
+        self.tags_display.setText(result_text)
+        self._show_generation_widgets()
+        print("🎯 Danbooru 태그 추출 및 표시 완료")
+
+    def _load_list_from_file(self):
+        """지정된 파일에서 한 줄에 하나씩 있는 태그를 읽어 리스트로 반환합니다."""
+        file_path = os.path.join('data', 'characteristic_list.txt')
         
-        # JSON 형태로도 표시
-        result_text += "📋 JSON 형태:\n"
-        result_text += "-" * 30 + "\n"
-        result_text += json.dumps(tags_data, indent=2, ensure_ascii=False)
-        
-        # self.tags_display.setText(result_text)
-        # self.tags_display.show()
-        
-        print("🎯 Danbooru 태그 추출 완료:")
-        # print(json.dumps(tags_data, indent=2, ensure_ascii=False))
-        self.tags_extracted.emit(tags_data)
+        if not os.path.exists(file_path):
+            print(f"⚠️ 필터 파일 없음: {file_path}")
+            return []
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                # 비어있지 않은 라인만 읽어서 앞뒤 공백 제거 후 리스트에 추가
+                tags = [line.strip() for line in f if line.strip()]
+            return tags
+        except Exception as e:
+            print(f"❌ 필터 파일 로드 오류 : {e}")
+            return []
+
+    def _show_generation_widgets(self):
+        """태그 표시창과 생성 버튼들을 보여줍니다."""
+        self.tags_display.setVisible(True)
+        self.generate_prompt_button.setVisible(True)
+        self.generate_with_image_button.setVisible(True)
+
+    def _hide_generation_widgets(self):
+        """태그 표시창과 생성 버튼들을 숨깁니다."""
+        self.tags_display.setVisible(False)
+        self.generate_prompt_button.setVisible(False)
+        self.generate_with_image_button.setVisible(False)
+
+    def _on_generate_prompt_clicked(self):
+        """프롬프트 생성 버튼 클릭 시 호출"""
+        if self.extracted_tags_data:
+            print(f"🚀 프롬프트 생성 시그널 발송: {self.extracted_tags_data}")
+            self.generate_prompt_requested.emit(self.extracted_tags_data)
+        else:
+            print("❌ 추출된 태그 데이터가 없습니다.")
+
+    def _on_generate_with_image_clicked(self):
+        """프롬프트+이미지 생성 버튼 클릭 시 호출"""
+        if self.extracted_tags_data:
+            print(f"🚀 프롬프트+이미지 생성 시그널 발송: {self.extracted_tags_data}")
+            self.generate_with_image_requested.emit(self.extracted_tags_data)
+        else:
+            print("❌ 추출된 태그 데이터가 없습니다.")
 
 def setup_webengine_ssl_fix():
     """WebEngine SSL 및 CSP 에러 해결 설정"""

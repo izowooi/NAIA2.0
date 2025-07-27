@@ -1310,6 +1310,12 @@ class ModernMainWindow(QMainWindow):
         self.connect_checkbox_signals()
         self.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
         self.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
+        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
+        if hasattr(self.image_window, 'generate_with_image_requested'):
+            self.image_window.generate_with_image_requested.connect(self.on_generate_with_image_requested)
+            print("✅ generate_with_image_requested 시그널이 연결되었습니다.")
+        else:
+            print("⚠️ generate_with_image_requested 시그널을 찾을 수 없습니다.")
 
 
     def set_positive_prompt(self, prompt: str):
@@ -1805,6 +1811,14 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self.prompt_gen_controller, 'auto_generation_requested') and self.prompt_gen_controller.auto_generation_requested:
             # 자동 생성 플래그 해제
             self.prompt_gen_controller.auto_generation_requested = False
+
+            char_module = self.middle_section_controller.get_module_instance("CharacterModule")
+            if (char_module and 
+                char_module.activate_checkbox.isChecked() and 
+                not char_module.reroll_on_generate_checkbox.isChecked()):
+                
+                print("🔄️ 자동 생성: 캐릭터 와일드카드를 갱신합니다.")
+                char_module.process_and_update_view()
             
             self.status_bar.showMessage("🔄 자동 생성: 프롬프트 생성 완료, 이미지 생성 시작...")
             
@@ -2332,6 +2346,17 @@ class ModernMainWindow(QMainWindow):
             # 커스텀 워크플로우가 비워졌으므로 버튼을 다시 비활성화
             self.workflow_custom_btn.setEnabled(False)
             self.status_bar.showMessage("🔄 기본 워크플로우로 전환되었습니다.", 3000)
+
+    def on_generate_with_image_requested(self, tags_dict: dict):
+        """WebView에서 추출된 태그로 프롬프트를 생성하고 바로 이미지 생성을 시작합니다."""
+        self.status_bar.showMessage("추출된 태그로 프롬프트 생성 및 이미지 생성 시작...")
+
+        # 1. 프롬프트 생성 (기존 로직 재사용)
+        self.on_instant_generation_requested(tags_dict)
+
+        # 2. 프롬프트 생성이 UI에 반영된 후 이미지 생성을 트리거하기 위해 QTimer.singleShot 사용
+        QTimer.singleShot(100, self.generation_controller.execute_generation_pipeline)
+
 
 
 if __name__ == "__main__":
