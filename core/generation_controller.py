@@ -3,7 +3,7 @@ from PIL import Image
 import piexif
 import piexif.helper
 import json
-import re
+import re, random
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, QTimer
 import pandas as pd
 
@@ -178,6 +178,19 @@ class GenerationController:
             if not is_valid:
                 self.context.main_window.status_bar.showMessage(f"⚠️ 유효성 검사 실패: {error_msg}")
                 return
+            
+            # 랜덤 해상도 처리
+            if params.get('random_resolution', False) and not self.context.main_window.resolution_is_detected:
+                random_index = random.randint(0, self.context.main_window.resolution_combo.count() - 1)
+                self.context.main_window.resolution_combo.setCurrentIndex(random_index)
+                selected_value = self.context.main_window.resolution_combo.currentText()
+                width, height = map(int, selected_value.split('x'))
+                params['width'] = width
+                params['height'] = height
+                print(f"랜덤 해상도 설정: {width}x{height}")
+
+            # 자동 해상도 관리 해제
+            self.context.main_window.resolution_is_detected = False
             
             if api_mode == "COMFYUI":
                 final_workflow = self.workflow_manager.apply_params_to_workflow(params)
