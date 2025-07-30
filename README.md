@@ -14,10 +14,10 @@ NAIA는 Danbooru 데이터셋과 Automatic1111 (WEBUI/webui-forge/webui-reforge)
 
 Danbooru 랜덤 프롬프트 생성 기능은 huggingface/isek-ai의 Danbooru 태그 데이터셋([isek-ai/danbooru-tags-2024 · Datasets at Hugging Face](https://huggingface.co/datasets/isek-ai/danbooru-tags-2024))을 이용하여 사용자가 희망하는 태그를 포함하고 있는 데이터셋의 General 행을 활용 해 Image 생성 API에게 전달할 프롬프트를 생성하는 기능을 수행합니다. 해당 기능은 하위 기능을 포함합니다:
 
-```
+
 **프롬프트 엔지니어링/자동화**
 사용자가 검색을 통해 데이터셋으로 부터 정제된 Danbooru Dataset을 생성 했을 경우 [랜덤/다음 프롬프트 버튼]을 눌렀을 때 사용자가 미리 입력한 [선행 고정 프롬프트], [후행 고정 프롬프트], [자동 숨김 프롬프트], [프롬프트 전처리 옵션]을 이용하여 사용자 맞춤 프롬프트를 생성하도록 합니다. 해당 기능을 사용할 때 선행/후행 프롬프트 영역에 <와일드카드> 를 삽입할 수 있으므로 사용자는 매우 다양한 이미지를 생성 할 수 있습니다. 
-```
+
 
 ## API Call Automation
 
@@ -57,7 +57,7 @@ Storyteller는 사용자가 선호하는 프롬프트를 Shortcut 방식으로 �
 
 기본적인 사용 방식은 Danbooru의 이미지 검색과 동일하지만 공백 문자 ‘ ’ 를 쉼표 ‘, ’ 로 구분하고 언더바 ‘_’를 사용하지 않는 등의 차이가 있습니다. 사용자는 다음과 같이 키워드를 검색할 수 있습니다. 
 
-```
+
 단순 검색 : 1girl, solo -> 1girl과 solo 텍스트를 포함하는 모든 프롬프트. solo는 solo focus 혹은 solo leveling과 같은 태그를 포함할 수 있음.
 
 퍼펙트 매칭 검색 : 1girl, *solo -> 1girl과 명확하게 solo 태그를 포함하는 모든 프롬프트. solo는 solo focus 혹은 solo leveling과 같은 태그를 포함하지 않음. 
@@ -67,7 +67,7 @@ OR 검색 : 1girl, {solo|pov} -> 1girl 텍스트는 무조건 포함하면서, s
 단순 제외 : boy, monochrome -> boy 텍스트와 monochrome 텍스트를 포함하는 모든 프롬프트를 검색 시 제외. 이로 인해 tomboy 등을 포함하는 프롬프트 또한 제외됨.
 
 퍼펙트 제외 : ~1boy, multiple boys, monochrome -> 명확하게 1boy 태그를 포함하지 않으면서 multiple boys와 monochrome 텍스트 또한 포함하지 않는 프롬프트만 검색
-```
+
 
 # Installation
 
