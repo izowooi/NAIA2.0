@@ -1,5 +1,3 @@
-# 제목 없음
-
 # NAIA - NAI Automation Tool
 
 NAIA is distributed for Korean users. However, English is used throughout the system, making it easy to use. Please use a translator if necessary.
