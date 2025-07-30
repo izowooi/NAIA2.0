@@ -97,3 +97,12 @@ chmod +x run_NAIA.command
 ## Initial Setup
 
 [프롬프트 검색 / 필터링 / API 관리] 메뉴를 확장하여 [API 관리] 탭에 진입합니다. 각 항목에 접근하여 API 연동을 수행합니다. NovelAI 영구 토큰을 발급 받는 방법에 대해서는 Novel AI Persistent API Token 구글 검색을 해 주십시오. 이후 왼쪽 상단의 [ NAI / WEBUI / ComfyUI ] 토글 버튼을 전화하여 목적에 맞는 API를 사용하십시오. * 기본 설정은 Novel AI 입니다.
+
+## WEBUI API Setting
+
+- 사용자는 사용중인 stable-diffusion-webui 폴더의 webui-user.bat 에 --api 인수를 추가해야합니다.
+```
+set COMMANDLINE_ARGS=--api
+```
+
+또한 현재 버전에서는 webui에서 saving image가 WEBP 또는 PNG 일 때만 처리가 가능합니다. 이외의 이미지 확장자가 NAIA로 전달되면 pixmap이 이를 처리하지 못해 app crash가 발생하게 됩니다. 이 점에 주의하십시오. 
