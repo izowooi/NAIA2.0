@@ -4,12 +4,14 @@ import os
 import json
 import pandas as pd
 import random
+import requests
+from io import BytesIO
 from PIL import Image, ImageGrab
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
     QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox,
-    QFileDialog, QWidgetAction, QButtonGroup, QMenu
+    QFileDialog, QWidgetAction, QButtonGroup, QMenu, QProgressDialog
 )
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
@@ -19,7 +21,7 @@ from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
 from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction, QKeySequence, QShortcut
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer, QEvent
+from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer, QEvent, QMimeData
 from core.search_controller import SearchController
 from core.search_result_model import SearchResultModel
 from core.autocomplete_manager import AutoCompleteManager
@@ -93,6 +95,181 @@ def get_autocomplete_manager(app_context=None):
     if _autocomplete_manager is None:
         _autocomplete_manager = AutoCompleteManager(app_context)  # 1회만 생성
     return _autocomplete_manager
+
+class ImageDownloadThread(QThread):
+    image_downloaded = pyqtSignal(Image.Image)
+    download_failed = pyqtSignal(str)
+    
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+        
+    def run(self):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(self.url, headers=headers, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            # 이미지 데이터를 메모리로 읽기
+            image_data = BytesIO(response.content)
+            pil_image = Image.open(image_data)
+            
+            # RGB로 변환 (RGBA나 다른 모드일 수 있음)
+            if pil_image.mode in ('RGBA', 'LA'):
+                # 투명 배경을 흰색으로 변환
+                background = Image.new('RGB', pil_image.size, (255, 255, 255))
+                if pil_image.mode == 'RGBA':
+                    background.paste(pil_image, mask=pil_image.split()[-1])
+                else:
+                    background.paste(pil_image, mask=pil_image.split()[-1])
+                pil_image = background
+            elif pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            self.image_downloaded.emit(pil_image)
+            
+        except requests.exceptions.RequestException as e:
+            self.download_failed.emit(f"네트워크 오류: {str(e)}")
+        except Exception as e:
+            self.download_failed.emit(f"이미지 처리 오류: {str(e)}")
+
+
+class PromptTextEdit(QTextEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setAcceptDrops(True)
+        self.img2img_popup = None
+        self.download_thread = None
+        self.progress_dialog = None
+
+    def insertFromMimeData(self, source: QMimeData):
+        # 1) 클립보드에 이미지 픽셀 데이터가 있으면 팝업
+        if source.hasImage():
+            pil_img = ImageGrab.grabclipboard()
+            if isinstance(pil_img, Image.Image):
+                self.show_img2img_popup(pil_img)
+                return  # 기본 텍스트 삽입 방지
+
+        # 2) 파일 URL이 있으면 처리
+        if source.hasUrls():
+            for url in source.urls():
+                path = url.toLocalFile()
+                
+                # 로컬 파일인 경우
+                if path and os.path.exists(path):
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif'):
+                        pil_img = Image.open(path)
+                        self.show_img2img_popup(pil_img)
+                        return  # 기본 텍스트 삽입 방지
+                
+                # 웹 URL인 경우 - 이미지 다운로드
+                else:
+                    url_string = url.toString()
+                    if self.is_web_image_url(url_string):
+                        self.download_web_image(url_string)
+                        return
+
+        # 3) 그 외는 기본 붙여넣기
+        super().insertFromMimeData(source)
+
+    def is_web_image_url(self, url_string: str) -> bool:
+        """웹 이미지 URL인지 확인"""
+        if not url_string.startswith(('http://', 'https://')):
+            return False
+        
+        # URL 끝에 이미지 확장자가 있는지 확인
+        ext = os.path.splitext(url_string.split('?')[0])[1].lower()
+        return ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')
+
+    def download_web_image(self, url: str):
+        """웹 이미지를 다운로드하여 처리"""
+        # 이미 다운로드 중이면 무시
+        if self.download_thread and self.download_thread.isRunning():
+            return
+            
+        # 프로그레스 다이얼로그 생성
+        self.progress_dialog = QProgressDialog("이미지 다운로드 중...", "취소", 0, 0, self)
+        self.progress_dialog.setWindowTitle("이미지 다운로드")
+        self.progress_dialog.setModal(True)
+        self.progress_dialog.show()
+        
+        # 다운로드 스레드 시작
+        self.download_thread = ImageDownloadThread(url)
+        self.download_thread.image_downloaded.connect(self.on_image_downloaded)
+        self.download_thread.download_failed.connect(self.on_download_failed)
+        self.download_thread.finished.connect(self.on_download_finished)
+        
+        # 취소 버튼 연결
+        self.progress_dialog.canceled.connect(self.cancel_download)
+        
+        self.download_thread.start()
+    
+    def on_image_downloaded(self, pil_image: Image.Image):
+        """이미지 다운로드 완료 시 호출"""
+        self.show_img2img_popup(pil_image)
+    
+    def on_download_failed(self, error_msg: str):
+        """다운로드 실패 시 호출"""
+        QMessageBox.warning(self, "다운로드 실패", f"이미지를 다운로드할 수 없습니다.\n\n{error_msg}")
+    
+    def on_download_finished(self):
+        """다운로드 완료 후 정리"""
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+        self.download_thread = None
+    
+    def cancel_download(self):
+        """다운로드 취소"""
+        if self.download_thread and self.download_thread.isRunning():
+            self.download_thread.terminate()
+            self.download_thread.wait()
+        self.on_download_finished()
+
+    def show_img2img_popup(self, pil_image: Image.Image):
+        # 이미 팝업이 떠 있으면 최상위로 올리기
+        if self.img2img_popup and self.img2img_popup.isVisible():
+            self.img2img_popup.raise_()
+            return
+
+        # 새 팝업 생성 (부모는 최상위 윈도우로)
+        self.img2img_popup = Img2ImgPopup(pil_image=pil_image, parent=self.window())
+
+        # 팝업 위치: 편집창 중앙 위에 띄우기
+        center = self.mapToGlobal(self.rect().center())
+        self.img2img_popup.move(
+            center.x() - self.img2img_popup.width() // 2,
+            center.y() - self.img2img_popup.height() // 2
+        )
+
+        # 모달로 띄우려면 exec(), 비모달이면 show()
+        self.img2img_popup.exec()
+
+    def dragEnterEvent(self, event):
+        """드래그 진입 시 이벤트 (선택적으로 미리보기 제공)"""
+        if event.mimeData().hasUrls():
+            # 웹 URL 미리 체크해서 드래그 커서 변경 가능
+            for url in event.mimeData().urls():
+                url_string = url.toString()
+                if self.is_web_image_url(url_string):
+                    event.acceptProposedAction()
+                    return
+        
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        """드래그 이동 시 이벤트"""
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                url_string = url.toString()
+                if self.is_web_image_url(url_string):
+                    event.acceptProposedAction()
+                    return
+        
+        super().dragMoveEvent(event)
 
 class ModernMainWindow(QMainWindow):
     def __init__(self):
@@ -467,7 +644,7 @@ class ModernMainWindow(QMainWindow):
         negative_prompt_layout.setContentsMargins(4, 4, 4, 4)
         
         # [수정] 메인 프롬프트 텍스트 위젯을 self 변수로 저장
-        self.main_prompt_textedit = QTextEdit()
+        self.main_prompt_textedit = PromptTextEdit(self)
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.main_prompt_textedit.setPlaceholderText("메인 프롬프트를 입력하세요...")
         self.main_prompt_textedit.setMinimumHeight(100)
@@ -476,7 +653,7 @@ class ModernMainWindow(QMainWindow):
         self.main_prompt_textedit.customContextMenuRequested.connect(self.show_prompt_context_menu)
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         
-        self.negative_prompt_textedit = QTextEdit()
+        self.negative_prompt_textedit = PromptTextEdit(self)
         self.negative_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.negative_prompt_textedit.setPlaceholderText("네거티브 프롬프트를 입력하세요...")
         self.negative_prompt_textedit.setMinimumHeight(100)
@@ -2367,58 +2544,11 @@ class ModernMainWindow(QMainWindow):
         # 2. 프롬프트 생성이 UI에 반영된 후 이미지 생성을 트리거하기 위해 QTimer.singleShot 사용
         QTimer.singleShot(100, self.generation_controller.execute_generation_pipeline)
 
-    def eventFilter(self, obj, event):
-        # 드래그 진입
-        if event.type() == QEvent.Type.DragEnter and obj in (
-            self.main_prompt_textedit.viewport(),
-            self.negative_prompt_textedit.viewport()
-        ):
-            if event.mimeData().hasUrls():
-                event.acceptProposedAction()
-                return True
-
-        # 드롭
-        if event.type() == QEvent.Type.Drop and obj in (
-            self.main_prompt_textedit.viewport(),
-            self.negative_prompt_textedit.viewport()
-        ):
-            for url in event.mimeData().urls():
-                path = url.toLocalFile()
-                ext = os.path.splitext(path)[1].lower()
-                if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif'):
-                    from PIL import Image
-                    img = Image.open(path)
-                    self.show_img2img_popup(img)
-                    break
-            event.acceptProposedAction()
-            obj.parentWidget().setFocus(Qt.FocusReason.OtherFocusReason)
-            return True
-
-        # 기존 키 이벤트 (붙여넣기) 등...
-        return super().eventFilter(obj, event)
-
-    def show_img2img_popup(self, pil_image: Image.Image):
-        """Img2Img 팝업 다이얼로그를 생성하고 표시합니다."""
-        # 팝업이 이미 열려있으면 중복 생성 방지
-        if hasattr(self, 'img2img_popup') and self.img2img_popup.isVisible():
-            return
-            
-        self.img2img_popup = Img2ImgPopup(pil_image, self)
-        
-        # 팝업을 프롬프트 입력창 근처에 위치시키기
-        focused_widget = QApplication.focusWidget()
-        if focused_widget:
-            pos = focused_widget.mapToGlobal(focused_widget.rect().center())
-            self.img2img_popup.move(pos.x() - self.img2img_popup.width() // 2, pos.y())
-        
-        self.img2img_popup.exec()
-
-
 
 if __name__ == "__main__":
     # 기존 환경 설정들...
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
     os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "RoundPreferFloor"
     
     setup_webengine()

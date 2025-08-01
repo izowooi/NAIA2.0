@@ -1,5 +1,3 @@
-# core/wildcard_processor.py
-
 import random
 import re
 from typing import List
@@ -33,7 +31,7 @@ class WildcardProcessor:
                 chosen_option = random.choice(options).strip()
                 return self._expand_recursive(chosen_option, context, depth + 1)
 
-            # 파일 기반 와일드카드 처리
+            # 파일 기반 와일드카드 처리 - <태그명> 형태는 기존 로직 유지
             line = self._get_wildcard_line(wildcard_name, context)
             if line is None: return [tag]
             
@@ -57,11 +55,30 @@ class WildcardProcessor:
         # 복합 와일드카드 처리 (__...__)
         if '__' in tag:
             parts = re.split(r'(__.*?__)', tag)
-            result_parts = [
-                ', '.join(self._expand_recursive(f"<{p[2:-2]}>", context, depth + 1)) if p.startswith('__') else p
-                for p in parts if p
-            ]
-            return [', '.join(result_parts)]
+            result_parts = []
+            
+            for part in parts:
+                if not part:
+                    continue
+                    
+                if part.startswith('__') and part.endswith('__'):
+                    # __태그명__ 형태: global_append_tags 없이 현재 위치에 일괄 나열
+                    wildcard_name = part[2:-2]
+                    line = self._get_wildcard_line(wildcard_name, context)
+                    if line is not None:
+                        expanded_parts = self._expand_recursive(line, context, depth + 1)
+                        # 모든 결과를 현재 위치에 콤마로 연결
+                        all_tags = []
+                        for expanded_part in expanded_parts:
+                            sub_tags = [t.strip() for t in expanded_part.split(',')]
+                            all_tags.extend(sub_tags)
+                        result_parts.append(', '.join(all_tags))
+                    else:
+                        result_parts.append(part)  # 확장 실패시 원본 유지
+                else:
+                    result_parts.append(part)
+            
+            return [''.join(result_parts)]
 
         return [tag]
 

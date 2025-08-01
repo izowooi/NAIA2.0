@@ -12,7 +12,7 @@ class Img2ImgPopup(QDialog):
         
         self.setWindowTitle("이미지 작업 선택")
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         
         # 팝업 스타일링
         self.setStyleSheet(f"""
@@ -77,3 +77,8 @@ class Img2ImgPopup(QDialog):
         print("Inpaint 탭으로 전송 (구현 필요)")
         # TODO: Inpaint 탭(또는 Img2Img 탭의 Inpaint 모드)을 열고 self.pil_image를 전달하는 로직
         self.accept()
+
+    def closeEvent(self, event):
+        # 삭제하지 말고 그냥 숨기기
+        event.ignore()
+        self.hide()
