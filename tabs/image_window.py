@@ -539,6 +539,7 @@ class HistoryItemWidget(QWidget):
 class ImageWindow(QWidget):
     instant_generation_requested = pyqtSignal(object)
     load_prompt_to_main_ui = pyqtSignal(str)
+    send_to_inpaint_requested = pyqtSignal(object)
 
     def __init__(self, app_context, parent=None):
         super().__init__(parent)
@@ -791,8 +792,18 @@ class ImageWindow(QWidget):
         copy_webp_action.triggered.connect(lambda: self.copy_image_to_clipboard('WEBP'))
         menu.addAction(copy_png_action)
         menu.addAction(copy_webp_action)
+
+        menu.addSeparator()
+        send_to_inpaint_action = QAction("🎨 Send to Inpaint (NAI)", self)
+        send_to_inpaint_action.triggered.connect(self._emit_send_to_inpaint)
+        menu.addAction(send_to_inpaint_action)
         
         menu.exec(self.main_image_label.mapToGlobal(pos))
+
+    def _emit_send_to_inpaint(self):
+        """'Send to Inpaint' 요청 시그널을 발생시킵니다."""
+        if self.current_history_item:
+            self.send_to_inpaint_requested.emit(self.current_history_item)
 
     def _load_current_prompt(self):
         """현재 표시 중인 이미지의 프롬프트를 불러옵니다."""

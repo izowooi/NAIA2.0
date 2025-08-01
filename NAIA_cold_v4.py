@@ -1507,6 +1507,8 @@ class ModernMainWindow(QMainWindow):
             print("✅ generate_with_image_requested 시그널이 연결되었습니다.")
         else:
             print("⚠️ generate_with_image_requested 시그널을 찾을 수 없습니다.")
+        if hasattr(self.image_window, 'send_to_inpaint_requested'):
+            self.image_window.send_to_inpaint_requested.connect(self.on_send_to_inpaint_requested)
 
 
     def set_positive_prompt(self, prompt: str):
@@ -2567,6 +2569,25 @@ class ModernMainWindow(QMainWindow):
             self.img2img_panel.set_image(pil_image)
             # 2. 패널의 Inpaint 버튼 클릭 로직을 즉시 실행
             self.img2img_panel._on_inpaint_button_clicked()
+
+    def on_send_to_inpaint_requested(self, history_item):
+        """
+        Inpaint 요청을 받아 API 모드를 NAI로 전환하고
+        InpaintWindow를 즉시 실행합니다.
+        """
+        if not history_item or not hasattr(history_item, 'image'):
+            return
+
+        # 1. 현재 API 모드 확인 및 NAI로 전환 (필요시)
+        current_mode = self.get_current_api_mode()
+        if current_mode != "NAI":
+            self.status_bar.showMessage("🎨 NAI 모드로 자동 전환하고 Inpaint를 시작합니다.", 3000)
+            print(f"🔄 API 모드 자동 전환: {current_mode} -> NAI")
+            self.toggle_search_mode("NAI")
+        
+        # 2. Inpaint 모드 활성화
+        pil_image = history_item.image
+        self.activate_inpaint_mode(pil_image)
 
 if __name__ == "__main__":
     # 기존 환경 설정들...

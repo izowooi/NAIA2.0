@@ -60,6 +60,7 @@ class RightView(QWidget):
     instant_generation_requested = pyqtSignal(dict)
     load_prompt_to_main_ui = pyqtSignal(str)
     generate_with_image_requested = pyqtSignal(dict)
+    send_to_inpaint_requested = pyqtSignal(object)
 
     def __init__(self, app_context, parent=None):
         super().__init__(parent)
@@ -88,6 +89,8 @@ class RightView(QWidget):
                 image_viewer_module.instant_generation_requested.connect(self.instant_generation_requested)
             if hasattr(image_viewer_module, 'load_prompt_to_main_ui'):
                 image_viewer_module.load_prompt_to_main_ui.connect(self.load_prompt_to_main_ui)
+            if hasattr(image_viewer_module.image_window_widget, 'send_to_inpaint_requested'):
+                image_viewer_module.image_window_widget.send_to_inpaint_requested.connect(self.send_to_inpaint_requested)
         else:
             print("⚠️ ImageViewerModule 인스턴스를 찾을 수 없어 시그널 연결에 실패했습니다.")
 
