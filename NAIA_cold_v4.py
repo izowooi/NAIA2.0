@@ -4,7 +4,7 @@ import os
 import json
 import pandas as pd
 import random
-from PIL import Image
+from PIL import Image, ImageGrab
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
@@ -18,8 +18,8 @@ from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
-from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer, QEvent
 from core.search_controller import SearchController
 from core.search_result_model import SearchResultModel
 from core.autocomplete_manager import AutoCompleteManager
@@ -27,6 +27,7 @@ from core.tag_data_manager import TagDataManager
 from core.wildcard_manager import WildcardManager
 from core.prompt_generation_controller import PromptGenerationController
 from utils.load_generation_params import GenerationParamsManager
+from ui.img2img_popup import Img2ImgPopup
 
 cfg_validator = QDoubleValidator(1.0, 10.0, 1)
 step_validator = QIntValidator(1, 50)
@@ -160,6 +161,11 @@ class ModernMainWindow(QMainWindow):
         # 새로운 getter 패턴 사용
         self.autocomplete_manager = get_autocomplete_manager(app_context=self.app_context)
         self.workflow_manager = self.app_context.comfyui_workflow_manager
+
+        self.main_prompt_textedit.installEventFilter(self)
+        self.negative_prompt_textedit.installEventFilter(self)
+        self.main_prompt_textedit.viewport().installEventFilter(self)
+        self.negative_prompt_textedit.viewport().installEventFilter(self)
 
         self.resolution_is_detected = False
 
@@ -2360,6 +2366,52 @@ class ModernMainWindow(QMainWindow):
 
         # 2. 프롬프트 생성이 UI에 반영된 후 이미지 생성을 트리거하기 위해 QTimer.singleShot 사용
         QTimer.singleShot(100, self.generation_controller.execute_generation_pipeline)
+
+    def eventFilter(self, obj, event):
+        # 드래그 진입
+        if event.type() == QEvent.Type.DragEnter and obj in (
+            self.main_prompt_textedit.viewport(),
+            self.negative_prompt_textedit.viewport()
+        ):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+                return True
+
+        # 드롭
+        if event.type() == QEvent.Type.Drop and obj in (
+            self.main_prompt_textedit.viewport(),
+            self.negative_prompt_textedit.viewport()
+        ):
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                ext = os.path.splitext(path)[1].lower()
+                if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif'):
+                    from PIL import Image
+                    img = Image.open(path)
+                    self.show_img2img_popup(img)
+                    break
+            event.acceptProposedAction()
+            obj.parentWidget().setFocus(Qt.FocusReason.OtherFocusReason)
+            return True
+
+        # 기존 키 이벤트 (붙여넣기) 등...
+        return super().eventFilter(obj, event)
+
+    def show_img2img_popup(self, pil_image: Image.Image):
+        """Img2Img 팝업 다이얼로그를 생성하고 표시합니다."""
+        # 팝업이 이미 열려있으면 중복 생성 방지
+        if hasattr(self, 'img2img_popup') and self.img2img_popup.isVisible():
+            return
+            
+        self.img2img_popup = Img2ImgPopup(pil_image, self)
+        
+        # 팝업을 프롬프트 입력창 근처에 위치시키기
+        focused_widget = QApplication.focusWidget()
+        if focused_widget:
+            pos = focused_widget.mapToGlobal(focused_widget.rect().center())
+            self.img2img_popup.move(pos.x() - self.img2img_popup.width() // 2, pos.y())
+        
+        self.img2img_popup.exec()
 
 
 

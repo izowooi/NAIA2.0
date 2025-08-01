@@ -466,11 +466,11 @@ class PipelineStageWidget(QWidget):
         script_vars = {k: v for k, v in available_vars.items() if k in core_vars}
         filter_vars = {k: v for k, v in available_vars.items() if k not in core_vars}
 
-        output_text = "--- 사용 가능 변수 ---\n"
+        output_text = "--- 사용 가능 변수 --- : "
         output_text += ", ".join(sorted(script_vars.keys())) + "\n"
         
         if filter_vars:
-            output_text += "--- 사용 가능 필터 ---\n"
+            output_text += "--- 사용 가능 필터 --- : "
             # 필터는 3개씩 묶어서 줄바꿈하여 보기 좋게 표시
             sorted_filters = sorted(filter_vars.keys())
             filter_lines = [", ".join(sorted_filters[i:i+3]) for i in range(0, len(sorted_filters), 3)]
