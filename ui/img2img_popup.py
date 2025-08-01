@@ -1,18 +1,22 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from .theme import DARK_STYLES, DARK_COLORS
 
 class Img2ImgPopup(QDialog):
-    def __init__(self, pil_image: Image.Image, parent=None):
+    img2img_requested = pyqtSignal(Image.Image)
+    inpaint_requested = pyqtSignal(Image.Image)
+
+    def __init__(self, pil_image: Image.Image,  app_context=None, parent=None):
         super().__init__(parent)
         self.pil_image = pil_image
+        self.app_context =app_context
         
         self.setWindowTitle("이미지 작업 선택")
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         
         # 팝업 스타일링
         self.setStyleSheet(f"""
@@ -69,16 +73,13 @@ class Img2ImgPopup(QDialog):
         main_layout.addWidget(close_button)
 
     def on_img2img_selected(self):
-        print("Img2Img 탭으로 전송 (구현 필요)")
-        # TODO: Img2Img 탭을 열고 self.pil_image를 전달하는 로직
-        self.accept()
+        """Img2Img 버튼 클릭 시 신호를 발생시키고 닫습니다."""
+        print("Img2Img 작업 요청 신호 발생")
+        self.img2img_requested.emit(self.pil_image)
+        self.accept() # 다이얼로그 닫기
 
     def on_inpaint_selected(self):
-        print("Inpaint 탭으로 전송 (구현 필요)")
-        # TODO: Inpaint 탭(또는 Img2Img 탭의 Inpaint 모드)을 열고 self.pil_image를 전달하는 로직
+        """Inpaint 버튼 클릭 시 신호를 발생시키고 닫습니다."""
+        print("Inpaint 작업 요청 신호 발생")
+        self.inpaint_requested.emit(self.pil_image)
         self.accept()
-
-    def closeEvent(self, event):
-        # 삭제하지 말고 그냥 숨기기
-        event.ignore()
-        self.hide()

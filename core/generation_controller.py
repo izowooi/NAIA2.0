@@ -170,15 +170,6 @@ class GenerationController:
                 module_params = module.get_parameters()
                 if module_params: params.update(module_params)
 
-            if overrides:
-                print(f"🔄 Workshop 파라미터로 덮어쓰기: {list(overrides.keys())}")
-                params.update(overrides)
-
-            is_valid, error_msg = self.validate_parameters(params)
-            if not is_valid:
-                self.context.main_window.status_bar.showMessage(f"⚠️ 유효성 검사 실패: {error_msg}")
-                return
-            
             # 랜덤 해상도 처리
             if params.get('random_resolution', False) and not self.context.main_window.resolution_is_detected:
                 random_index = random.randint(0, self.context.main_window.resolution_combo.count() - 1)
@@ -191,6 +182,20 @@ class GenerationController:
 
             # 자동 해상도 관리 해제
             self.context.main_window.resolution_is_detected = False
+
+            img2img_params = self.context.main_window.img2img_panel.get_parameters()
+            if img2img_params:
+                print("🖼️ Img2Img 패널 활성화됨. 파라미터를 추가합니다.")
+                params.update(img2img_params)
+
+            if overrides:
+                print(f"🔄 Workshop 파라미터로 덮어쓰기: {list(overrides.keys())}")
+                params.update(overrides)
+
+            is_valid, error_msg = self.validate_parameters(params)
+            if not is_valid:
+                self.context.main_window.status_bar.showMessage(f"⚠️ 유효성 검사 실패: {error_msg}")
+                return
             
             if api_mode == "COMFYUI":
                 final_workflow = self.workflow_manager.apply_params_to_workflow(params)

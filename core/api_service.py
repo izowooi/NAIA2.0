@@ -1,6 +1,7 @@
 import requests
 import zipfile
 import io, time
+import base64
 from PIL import Image
 from typing import Dict, Any, TYPE_CHECKING, List
 from core.comfyui_service import ComfyUIService
@@ -57,6 +58,7 @@ class APIService:
                     # 마지막 시도에서도 실패하면 에러 반환
                     return {'status': 'error', 'message': f"API 호출 실패 (최대 재시도 {max_retries}회 초과): {e}"}
 
+
     def _call_nai_api(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """NovelAI 이미지 생성 API를 호출합니다."""
         try:
@@ -75,7 +77,15 @@ class APIService:
             # 모델 이름 가져오기 및 매핑
             model_key = params.get('model', 'NAID4.5F')
             model_name = model_mapping.get(model_key, 'nai-diffusion-4-5-full')
-            
+
+            # ✅ Img2Img 분기 처리
+            is_img2img = 'image_bytes' in params and params['image_bytes'] is not None
+            action_type = "generate"
+            if is_img2img:
+                action_type = "infill" if params.get('type') == 'inpaint' else "img2img"
+            if params.get('type') == 'inpaint':
+                model_name += "-inpainting"
+
             # API가 요구하는 파라미터 구조 생성
             api_parameters = {
                 "width": params.get('width', 832),
@@ -94,8 +104,29 @@ class APIService:
                 "legacy": False,
                 "legacy_v3_extend": False,
             }
+
+            if is_img2img:
+                api_parameters["image"] = base64.b64encode(params['image_bytes']).decode()
+                
+                if action_type == "infill":
+                    # 🔥 핵심 수정: 마스크 데이터 처리 개선
+                    mask_bytes = params['mask_bytes']
+                    
+                    # 마스크 데이터 형식 확인 및 변환
+                    processed_mask = self._process_mask_data(mask_bytes, is_nai=True)
+                    api_parameters["mask"] = processed_mask
+                    
+                    api_parameters["add_original_image"] = True
+                    api_parameters["inpaintImg2ImgStrength"] = params.get('strength', 0.7)
+                    api_parameters["noise"] = 0
+                    api_parameters["deliberate_euler_ancestral_bug"] = False
+                    api_parameters["controlnet_strength"] = 1
+                    api_parameters["request_type"] = "NativeInfillingRequest"
+                else: # img2img
+                    api_parameters["strength"] = params.get('strength', 0.5)
+                    api_parameters["noise"] = params.get('noise', 0.05)
             
-            # V4 특화 설정
+            # V4 특화 설정 (기존과 동일)
             if 'nai-diffusion-4' in model_name:
                 main_prompt = params.get('input', '')
                 negative_prompt = params.get('negative_prompt', '')
@@ -126,24 +157,20 @@ class APIService:
                     }
                 })
 
-                # AppContext를 통해 CharacterModule 인스턴스를 찾습니다.
-                char_module: 'CharacterModule' = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
-
+                # 캐릭터 모듈 처리 (기존과 동일)
+                char_module = self.app_context.middle_section_controller.get_module_instance("CharacterModule")
                 if char_module and char_module.activate_checkbox.isChecked():
                     print("✅ 캐릭터 모듈 활성화됨. 파라미터를 가져옵니다.")
-                    # 캐릭터 모듈에서 처리된 파라미터를 가져옵니다.
-                    # get_parameters는 와일드카드 처리까지 완료된 결과를 반환합니다.
                     char_params = char_module.get_parameters()
                     
                     if char_params and char_params.get("characters"):
                         characters = char_params["characters"]
                         ucs = char_params["uc"]
                         
-                        # API 페이로드에 맞게 데이터 가공
                         for i, prompt in enumerate(characters):
                             api_parameters['v4_prompt']['caption']['char_captions'].append({
                                 'char_caption': prompt,
-                                'centers': [{"x": 0.5, "y": 0.5}] # TODO: 좌표 시스템 연동 필요
+                                'centers': [{"x": 0.5, "y": 0.5}]
                             })
                             api_parameters['v4_negative_prompt']['caption']['char_captions'].append({
                                 'char_caption': ucs[i] if i < len(ucs) else "",
@@ -154,7 +181,7 @@ class APIService:
             payload = {
                 "input": params.get('input', ''),
                 "model": model_name,
-                "action": "generate",
+                "action": action_type,
                 "parameters": api_parameters
             }
 
@@ -201,7 +228,10 @@ class APIService:
                     webui_url = f"http://{webui_url}"
             
             # WEBUI API 엔드포인트 URL 구성
-            api_endpoint = f"{webui_url}/sdapi/v1/txt2img"
+            is_img2img = 'image_bytes' in params and params['image_bytes'] is not None
+            is_inpaint = is_img2img and params.get('type') == 'inpaint'
+
+            api_endpoint = f"{webui_url}/sdapi/v1/img2img" if is_img2img else f"{webui_url}/sdapi/v1/txt2img"
             
             # WEBUI API 페이로드 구성
             payload = {
@@ -211,11 +241,11 @@ class APIService:
                 "height": params.get('height', 1216),
                 "steps": params.get('steps', 28),
                 "cfg_scale": params.get('cfg_scale', 5.0),
-                "seed": params.get('seed', -1),  # WEBUI는 -1이 랜덤 시드
+                "seed": params.get('seed', -1),
                 "sampler_name": params.get('sampler', 'Euler a'),
                 "scheduler": params.get('scheduler', 'SGM Uniform'),
-                "n_iter": 1,  # 배치 수
-                "batch_size": 1,  # 배치 크기
+                "n_iter": 1,
+                "batch_size": 1,
                 "restore_faces": False,
                 "tiling": False,
                 "enable_hr": params.get('enable_hr', False),
@@ -225,18 +255,31 @@ class APIService:
                 "do_not_save_samples": False,
                 "do_not_save_grid": True
             }
+
+            if is_img2img:
+                payload["init_images"] = [base64.b64encode(params['image_bytes']).decode()]
+                payload["denoising_strength"] = params.get('strength', 0.5)
+
+                if is_inpaint:
+                    # 🔥 WebUI 마스크 처리도 개선
+                    mask_bytes = params['mask_bytes']
+                    processed_mask = self._process_mask_data(mask_bytes, is_nai=False)
+                    payload["mask"] = processed_mask
+                    
+                    payload["inpainting_fill"] = 1
+                    payload["inpaint_full_res"] = True
+                    payload["inpaint_full_res_padding"] = 32
             
-            # Hires-fix 관련 파라미터 (enable_hr이 True인 경우에만)
+            # 나머지 처리는 기존과 동일...
             if payload["enable_hr"]:
                 payload.update({
                     "hr_scale": params.get('hr_scale', 1.5),
                     "hr_upscaler": params.get('hr_upscaler', 'Lanczos'),
-                    "hr_second_pass_steps": params.get('steps', 28) // 2,  # 일반적으로 절반
+                    "hr_second_pass_steps": params.get('steps', 28) // 2,
                     "hr_resize_x": int(payload["width"] * params.get('hr_scale', 1.5)),
                     "hr_resize_y": int(payload["height"] * params.get('hr_scale', 1.5))
                 })
             
-            # Custom API 파라미터 병합 (있는 경우)
             if params.get('use_custom_api_params', False):
                 custom_params_text = params.get('custom_api_params', '')
                 if custom_params_text.strip():
@@ -252,40 +295,20 @@ class APIService:
             print(f"📤 WEBUI API 요청 페이로드 요약:")
             print(f"   - 엔드포인트: {api_endpoint}")
             print(f"   - 해상도: {payload['width']}x{payload['height']}")
-            print(f"   - 샘플러: {payload['sampler_name']}")
-            print(f"   - 스케줄러: {payload['scheduler']}")
-            print(f"   - Steps: {payload['steps']}, CFG: {payload['cfg_scale']}")
-            print(f"   - Hires-fix: {payload['enable_hr']}")
+            print(f"   - 마스크 포함: {is_inpaint}")
             
-            # API 요청 전송
-            headers = {
-                "Content-Type": "application/json"
-            }
+            headers = {"Content-Type": "application/json"}
             
-            response = requests.post(
-                api_endpoint,
-                headers=headers,
-                json=payload,
-                timeout=300  # WEBUI는 생성 시간이 더 오래 걸릴 수 있음
-            )
+            response = requests.post(api_endpoint, headers=headers, json=payload, timeout=300)
             response.raise_for_status()
             
-            # 응답 처리
             result = response.json()
             
             if 'images' in result and len(result['images']) > 0:
-                # 첫 번째 이미지 데이터 추출
                 image_b64 = result['images'][0]
-                
-                # Base64 디코딩
-                import base64
-                from io import BytesIO
-                from PIL import Image
-                
                 image_data = base64.b64decode(image_b64)
-                image = Image.open(BytesIO(image_data))
+                image = Image.open(io.BytesIO(image_data))
                 
-                # 생성 정보 추출 (있는 경우)
                 info_text = result.get('info', '')
                 if info_text:
                     print(f"📋 WEBUI 생성 정보: {info_text[:100]}...")
@@ -299,28 +322,6 @@ class APIService:
             else:
                 raise Exception("응답에서 이미지를 찾을 수 없습니다.")
         
-        except requests.exceptions.HTTPError as e:
-            error_message = f"WEBUI API 오류 (HTTP {e.response.status_code})"
-            if e.response.text:
-                try:
-                    error_data = e.response.json()
-                    if 'detail' in error_data:
-                        error_message += f": {error_data['detail']}"
-                    elif 'error' in error_data:
-                        error_message += f": {error_data['error']}"
-                    else:
-                        error_message += f": {e.response.text}"
-                except:
-                    error_message += f": {e.response.text}"
-            
-            print(f"❌ {error_message}")
-            return {'status': 'error', 'message': error_message}
-            
-        except requests.exceptions.Timeout:
-            error_message = "WEBUI API 요청 시간 초과 (5분)"
-            print(f"❌ {error_message}")
-            return {'status': 'error', 'message': error_message}
-            
         except Exception as e:
             print(f"❌ WEBUI API 호출 중 예외 발생: {e}")
             return {'status': 'error', 'message': str(e)}
@@ -383,3 +384,57 @@ class APIService:
             # WebSocket 연결 정리
             if self.comfyui_service:
                 self.comfyui_service.disconnect_websocket()
+
+    def _process_mask_data(self, mask_bytes: bytes, is_nai: bool = True) -> str:
+        """
+        Base64 인코딩된 이미지 또는 파일에서 이진 마스크를 생성하고 확대합니다.
+        
+        Args:
+            mask_bytes (bytes): 마스크 바이너리 데이터
+            is_nai (bool): NAI API 여부 (기본값: True)
+        
+        Returns:
+            str: Base64로 인코딩된 처리된 마스크 문자열
+        """
+        import numpy as np
+        
+        try:
+            # 이미지 데이터 가져오기
+            base64_string = base64.b64encode(mask_bytes).decode('utf-8')
+            
+            # Base64 디코딩
+            image_data = base64.b64decode(base64_string)
+            img = Image.open(io.BytesIO(image_data))
+            
+            # 1. 그레이스케일로 변환
+            img_gray = img.convert('L')
+            
+            # 2. 이진화 적용 (임계값 기준으로 흑백으로 변환)
+            threshold = 128
+            img_binary = img_gray.point(lambda x: 255 if x > threshold else 0, '1')
+            
+            # 3. 원본 크기 저장
+            original_width, original_height = img_binary.size
+            
+            # 4. 새 크기 계산 (정수로 변환)
+            scale_factor = 8
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            
+            # 5. 이진 이미지 확대 - nearest neighbor 사용하여 픽셀화된 경계 유지
+            img_resized = img_binary.resize((new_width, new_height), Image.NEAREST)
+            
+            # 6. 다시 RGB 모드로 변환 (필요한 경우)
+            img_final = img_resized.convert('RGB')
+
+            buffer = io.BytesIO()
+            img_final.save(buffer, format='PNG')
+            new_base64_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            
+            print(f"✅ 마스크 처리 완료: {original_width}x{original_height} → {new_width}x{new_height}")
+            return new_base64_string
+            
+        except Exception as e:
+            print(f"❌ 마스크 데이터 처리 실패: {e}")
+            # 폴백: 원본 데이터를 그대로 base64 인코딩
+            return base64.b64encode(mask_bytes).decode()

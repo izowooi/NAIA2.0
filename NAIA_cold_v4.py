@@ -30,6 +30,7 @@ from core.wildcard_manager import WildcardManager
 from core.prompt_generation_controller import PromptGenerationController
 from utils.load_generation_params import GenerationParamsManager
 from ui.img2img_popup import Img2ImgPopup
+from ui.img2img_panel import Img2ImgPanel
 
 cfg_validator = QDoubleValidator(1.0, 10.0, 1)
 step_validator = QIntValidator(1, 50)
@@ -140,39 +141,39 @@ class PromptTextEdit(QTextEdit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setAcceptDrops(True)
-        self.img2img_popup = None
         self.download_thread = None
         self.progress_dialog = None
+        # AppContext를 나중에 주입받을 변수
+        self.app_context = None
 
     def insertFromMimeData(self, source: QMimeData):
-        # 1) 클립보드에 이미지 픽셀 데이터가 있으면 팝업
+        # 1. 클립보드 이미지 처리
         if source.hasImage():
             pil_img = ImageGrab.grabclipboard()
             if isinstance(pil_img, Image.Image):
                 self.show_img2img_popup(pil_img)
                 return  # 기본 텍스트 삽입 방지
 
-        # 2) 파일 URL이 있으면 처리
+        # 2. 파일 드롭 처리
         if source.hasUrls():
             for url in source.urls():
-                path = url.toLocalFile()
-                
-                # 로컬 파일인 경우
-                if path and os.path.exists(path):
-                    ext = os.path.splitext(path)[1].lower()
-                    if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif'):
-                        pil_img = Image.open(path)
-                        self.show_img2img_popup(pil_img)
-                        return  # 기본 텍스트 삽입 방지
-                
-                # 웹 URL인 경우 - 이미지 다운로드
+                # 로컬 파일 경로 처리
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if path and os.path.exists(path):
+                        ext = os.path.splitext(path)[1].lower()
+                        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'):
+                            pil_img = Image.open(path)
+                            self.show_img2img_popup(pil_img)
+                            return
+                # 웹 URL 처리
                 else:
                     url_string = url.toString()
                     if self.is_web_image_url(url_string):
                         self.download_web_image(url_string)
                         return
-
-        # 3) 그 외는 기본 붙여넣기
+        
+        # 3. 이미지 데이터가 아니면 기본 붙여넣기 동작 수행
         super().insertFromMimeData(source)
 
     def is_web_image_url(self, url_string: str) -> bool:
@@ -230,23 +231,22 @@ class PromptTextEdit(QTextEdit):
         self.on_download_finished()
 
     def show_img2img_popup(self, pil_image: Image.Image):
-        # 이미 팝업이 떠 있으면 최상위로 올리기
-        if self.img2img_popup and self.img2img_popup.isVisible():
-            self.img2img_popup.raise_()
-            return
+        main_window = self.window()
+        popup = Img2ImgPopup(pil_image=pil_image, app_context=self.app_context, parent=main_window)
 
-        # 새 팝업 생성 (부모는 최상위 윈도우로)
-        self.img2img_popup = Img2ImgPopup(pil_image=pil_image, parent=self.window())
+        # 팝업의 신호를 메인 윈도우의 슬롯에 연결
+        if hasattr(main_window, 'activate_img2img_panel'):
+            popup.img2img_requested.connect(main_window.activate_img2img_panel)
+        if hasattr(main_window, 'activate_inpaint_mode'):
+            popup.inpaint_requested.connect(main_window.activate_inpaint_mode)
 
-        # 팝업 위치: 편집창 중앙 위에 띄우기
+        # 팝업 위치 조정 및 실행
         center = self.mapToGlobal(self.rect().center())
-        self.img2img_popup.move(
-            center.x() - self.img2img_popup.width() // 2,
-            center.y() - self.img2img_popup.height() // 2
+        popup.move(
+            center.x() - popup.width() // 2,
+            center.y() - popup.height() // 2
         )
-
-        # 모달로 띄우려면 exec(), 비모달이면 show()
-        self.img2img_popup.exec()
+        popup.exec()
 
     def dragEnterEvent(self, event):
         """드래그 진입 시 이벤트 (선택적으로 미리보기 제공)"""
@@ -306,6 +306,8 @@ class ModernMainWindow(QMainWindow):
         self.tag_data_manager = TagDataManager()
         self.wildcard_manager = WildcardManager()
         self.app_context = AppContext(self, self.wildcard_manager, self.tag_data_manager)
+
+        self.img2img_panel = Img2ImgPanel(self)
 
         self.init_ui()
         
@@ -456,6 +458,7 @@ class ModernMainWindow(QMainWindow):
         
         # 메인 레이아웃에 스플리터 추가
         main_layout.addWidget(main_splitter)
+        main_layout.insertWidget(1, self.img2img_panel)
 
         # === 하단 영역: 확장 가능한 생성 제어 영역 ===
         bottom_area = self.create_enhanced_generation_area()
@@ -644,7 +647,8 @@ class ModernMainWindow(QMainWindow):
         negative_prompt_layout.setContentsMargins(4, 4, 4, 4)
         
         # [수정] 메인 프롬프트 텍스트 위젯을 self 변수로 저장
-        self.main_prompt_textedit = PromptTextEdit(self)
+        self.main_prompt_textedit = PromptTextEdit()
+        self.main_prompt_textedit.app_context = self.app_context # AppContext 주입
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.main_prompt_textedit.setPlaceholderText("메인 프롬프트를 입력하세요...")
         self.main_prompt_textedit.setMinimumHeight(100)
@@ -653,7 +657,8 @@ class ModernMainWindow(QMainWindow):
         self.main_prompt_textedit.customContextMenuRequested.connect(self.show_prompt_context_menu)
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         
-        self.negative_prompt_textedit = PromptTextEdit(self)
+        self.negative_prompt_textedit = PromptTextEdit()
+        self.negative_prompt_textedit.app_context = self.app_context
         self.negative_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.negative_prompt_textedit.setPlaceholderText("네거티브 프롬프트를 입력하세요...")
         self.negative_prompt_textedit.setMinimumHeight(100)
@@ -2056,6 +2061,9 @@ class ModernMainWindow(QMainWindow):
         
         event.accept()
 
+    def get_api_mode(self) -> str:
+        return self.app_context.get_api_mode()
+
     def on_resolution_detected(self, width: int, height: int):
         """컨트롤러로부터 받은 해상도를 콤보박스에 적용합니다."""
         resolution_str = f"{width} x {height}"
@@ -2544,6 +2552,21 @@ class ModernMainWindow(QMainWindow):
         # 2. 프롬프트 생성이 UI에 반영된 후 이미지 생성을 트리거하기 위해 QTimer.singleShot 사용
         QTimer.singleShot(100, self.generation_controller.execute_generation_pipeline)
 
+    def activate_img2img_panel(self, pil_image: Image.Image):
+        """Img2ImgPopup의 요청을 받아 Img2ImgPanel을 기본 모드로 활성화합니다."""
+        if hasattr(self, 'img2img_panel'):
+            print(f"🖼️ Img2Img 패널 활성화 (이미지 크기: {pil_image.size})")
+            self.img2img_panel.set_image(pil_image)
+            self.status_bar.showMessage("Img2Img 패널이 활성화되었습니다.", 3000)
+
+    def activate_inpaint_mode(self, pil_image: Image.Image):
+        """Img2ImgPopup의 요청을 받아 Img2ImgPanel을 활성화하고 즉시 Inpaint 창을 엽니다."""
+        if hasattr(self, 'img2img_panel'):
+            print(f"🎨 Inpaint 모드 활성화 요청 (이미지 크기: {pil_image.size})")
+            # 1. 먼저 패널을 이미지와 함께 활성화
+            self.img2img_panel.set_image(pil_image)
+            # 2. 패널의 Inpaint 버튼 클릭 로직을 즉시 실행
+            self.img2img_panel._on_inpaint_button_clicked()
 
 if __name__ == "__main__":
     # 기존 환경 설정들...
