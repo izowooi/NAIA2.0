@@ -22,7 +22,7 @@ class SafeExecutor:
 
         # 위험한 함수/키워드만 블랙리스트로 관리
         self.blacklisted_keywords = [
-            'import os', 'from os', '__import__', 'exec', 'eval', 'compile',
+            'import os', 'from os', 'exec', 'eval', 'compile',
             'open(', 'file(', 'input(', 'raw_input(',
             'subprocess', 'system', 'popen', 'spawn',
             'exit(', 'quit(', 'sys.exit',
@@ -32,17 +32,17 @@ class SafeExecutor:
         ]
 
         # 모든 기본 내장 함수를 허용 (위험한 것들만 제외)
-        dangerous_builtins = {
-            'open', 'input', 'raw_input', 'file', 'execfile', 'reload', 
-            'exit', 'quit', '__import__', 'eval', 'exec', 'compile',
-            'delattr', 'getattr', 'setattr', 'hasattr', 'globals', 'locals', 'vars', 'dir'
-        }
+        # dangerous_builtins = {
+        #     'open', 'input', 'raw_input', 'file', 'execfile', 'reload', 
+        #     'exit', 'quit', 'eval', 'exec', 'compile',
+        #     'delattr', 'getattr', 'setattr', 'hasattr', 'globals', 'locals', 'vars', 'dir'
+        # }
         
         # 모든 내장 함수에서 위험한 것들만 제외
         safe_builtins = {}
         for name in dir(builtins):
-            if not name.startswith('_') and name not in dangerous_builtins:
-                safe_builtins[name] = getattr(builtins, name)
+            # if not name.startswith('_') and name not in dangerous_builtins:
+            safe_builtins[name] = getattr(builtins, name)
         
         # 기본적으로 필요한 상수들 추가
         safe_builtins.update({
