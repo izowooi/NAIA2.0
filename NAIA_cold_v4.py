@@ -20,7 +20,7 @@ from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
-from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction, QKeySequence, QShortcut
+from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QCursor
 from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer, QEvent, QMimeData
 from core.search_controller import SearchController
 from core.search_result_model import SearchResultModel
@@ -241,11 +241,21 @@ class PromptTextEdit(QTextEdit):
             popup.inpaint_requested.connect(main_window.activate_inpaint_mode)
 
         # 팝업 위치 조정 및 실행
-        center = self.mapToGlobal(self.rect().center())
-        popup.move(
-            center.x() - popup.width() // 2,
-            center.y() - popup.height() // 2
-        )
+        cursor_pos = QCursor.pos()
+        popup_rect = popup.geometry()
+
+        # 팝업의 좌상단 위치 계산 (마우스 커서 x 좌표 중앙, 마우스 커서 y 좌표 - 팝업 높이)
+        new_x = cursor_pos.x() - popup_rect.width() // 2
+        new_y = cursor_pos.y() - popup_rect.height()
+
+        # 화면 경계 처리 (선택 사항)
+        screen = main_window.screen()
+        screen_rect = screen.availableGeometry()
+        new_x = max(screen_rect.left() + 5, min(new_x, screen_rect.right() - popup_rect.width() - 5))
+        new_y = max(screen_rect.top() + 5, min(new_y, screen_rect.bottom() - popup_rect.height() - 5))
+
+        popup.move(new_x, new_y)
+
         popup.exec()
 
     def dragEnterEvent(self, event):
