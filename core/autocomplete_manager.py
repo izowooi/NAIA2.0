@@ -100,6 +100,9 @@ class AutoCompleteManager(QObject):
             "delay_input", "repeat_input", "timer_input", "count_input"
         ]
         
+        # 자동완성 활성화 상태
+        self.enabled = True
+        
         # 🆕 지연 초기화 타이머
         self.init_timer = QTimer()
         self.init_timer.setSingleShot(True)
@@ -243,6 +246,22 @@ class AutoCompleteManager(QObject):
         """무시할 부모 위젯 이름을 동적으로 추가"""
         self.ignored_parent_names.add(parent_name)
         print(f"✅ '{parent_name}' 부모 위젯이 자동완성 제외 목록에 추가되었습니다.")
+    
+    def enable(self):
+        """자동완성 기능을 활성화합니다."""
+        if not hasattr(self, 'enabled'):
+            self.enabled = True
+        self.enabled = True
+        print("Autocomplete enabled.")
+    
+    def disable(self):
+        """자동완성 기능을 비활성화합니다."""
+        if not hasattr(self, 'enabled'):
+            self.enabled = True
+        self.enabled = False
+        if self.popup and self.popup.isVisible():
+            self.popup.hide()
+        print("Autocomplete disabled.")
 
     def on_key_release(self, widget: QWidget, event: QKeyEvent):
         """키 입력이 끝나면 타이머를 시작하여 자동완성 팝업을 띄울 준비"""
@@ -253,7 +272,7 @@ class AutoCompleteManager(QObject):
 
     def show_completions(self):
         """자동완성 목록을 표시하는 메서드"""
-        if not self.current_widget: 
+        if not self.current_widget or not self.enabled: 
             return
 
         # 💡 [수정] 팝업이 없을 경우에만 생성 (지연 초기화)
@@ -360,7 +379,7 @@ class AutoCompleteManager(QObject):
         
         # 괄호 구조 복원
         if not self.app_context.current_api_mode == "NAI":
-            completion_text = completion_text.replace('(', '\(').replace(')', '\)')
+            completion_text = completion_text.replace('(', r'\(').replace(')', r'\)')
         final_text = self._restore_brackets(completion_text, info['prefix'], info['suffix'])
 
         if isinstance(widget, QTextEdit):

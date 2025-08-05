@@ -1167,85 +1167,6 @@ class ModernMainWindow(QMainWindow):
         container_layout.addWidget(generation_control_frame)
         
         return container
-
-    # Dupliucated
-    # def get_main_parameters(self) -> dict:
-    #     """메인 UI의 파라미터들을 수집하여 딕셔너리로 반환합니다."""
-    #     params = {}
-    #     try:
-    #         # 해상도 파싱 - 공백 처리 개선
-    #         resolution_text = self.resolution_combo.currentText()
-    #         if " x " in resolution_text:
-    #             width_str, height_str = resolution_text.split(" x ")
-    #             width, height = int(width_str.strip()), int(height_str.strip())
-    #         else:
-    #             # 기본값 설정
-    #             width, height = 1024, 1024
-            
-    #         # 시드 처리
-    #         if self.seed_fix_checkbox.isChecked():
-    #             try:
-    #                 seed_value = int(self.seed_input.text())
-    #             except ValueError:
-    #                 seed_value = -1
-    #         else:
-    #             seed_value = random.randint(0, 9999999999)
-    #             self.seed_input.setText(str(seed_value))
-
-    #         # 프롬프트 처리 (쉼표 기준 정리)
-    #         processed_input = ', '.join([item.strip() for item in self.main_prompt_textedit.toPlainText().split(',') if item.strip()])
-    #         processed_negative_prompt = ', '.join([item.strip() for item in self.negative_prompt_textedit.toPlainText().split(',') if item.strip()])
-
-    #         # 🔧 수정: 실제 위젯 이름에 맞게 파라미터 수집
-    #         params = {
-    #             "action": "generate",
-    #             "access_token": "",
-    #             "input": processed_input,
-    #             "negative_prompt": processed_negative_prompt,
-    #             "model": self.model_combo.currentText(),
-    #             "scheduler": self.scheduler_combo.currentText(),
-    #             "sampler": self.sampler_combo.currentText(),
-    #             "resolution": self.resolution_combo.currentText(),  # UI 표시용
-    #             "width": width,
-    #             "height": height,
-    #             "seed": seed_value,
-    #             "random_resolution": self.random_resolution_checkbox.isChecked(),
-    #             "steps": self.steps_spinbox.value(),
-    #             "cfg_scale": self.cfg_scale_slider.value() / 10.0,  # 슬라이더 값(10~300) → 실제 값(1.0~30.0)
-    #             "cfg_rescale": self.cfg_rescale_slider.value() / 100.0,  # 슬라이더 값(0~100) → 실제 값(0.0~1.0)
-                
-    #             # 고급 체크박스들 (딕셔너리에서 직접 접근)
-    #             "SMEA": self.advanced_checkboxes["SMEA"].isChecked(),
-    #             "DYN": self.advanced_checkboxes["DYN"].isChecked(),
-    #             "VAR+": self.advanced_checkboxes["VAR+"].isChecked(),
-    #             "DECRISP": self.advanced_checkboxes["DECRISP"].isChecked(),
-                
-    #             # 커스텀 API 파라미터
-    #             "use_custom_api_params": self.custom_api_checkbox.isChecked(),
-    #             "custom_api_params": self.custom_script_textbox.toPlainText()
-    #         }
-            
-    #         # 🆕 추가: WEBUI 전용 파라미터들 (해당 모드일 때만)
-    #         if hasattr(self, 'enable_hr_checkbox'):
-    #             params.update({
-    #                 "enable_hr": self.enable_hr_checkbox.isChecked(),
-    #                 "hr_scale": self.hr_scale_spinbox.value() if hasattr(self, 'hr_scale_spinbox') else 1.5,
-    #                 "hr_upscaler": self.hr_upscaler_combo.currentText() if hasattr(self, 'hr_upscaler_combo') else "Lanczos",
-    #                 "denoising_strength": self.denoising_strength_slider.value() / 100.0 if hasattr(self, 'denoising_strength_slider') else 0.5,
-    #                 "hires_steps": self.hires_steps_spinbox.value() if hasattr(self, 'hires_steps_spinbox') else 0
-    #             })
-                
-    #         # 🆕 추가: 자동 해상도 맞춤 옵션
-    #         if hasattr(self, 'auto_fit_resolution_checkbox'):
-    #             params["auto_fit_resolution"] = self.auto_fit_resolution_checkbox.isChecked()
-                
-    #     except (ValueError, KeyError, AttributeError) as e:
-    #         print(f"❌ 파라미터 수집 오류: {e}")
-    #         # 오류 발생 시 사용자에게 알림
-    #         self.status_bar.showMessage(f"⚠️ 생성 파라미터 값에 오류가 있습니다: {e}", 5000)
-    #         return {}  # 빈 딕셔너리 반환
-
-    #     return params
     
     def toggle_params_panel(self):
         """생성 파라미터 패널 토글"""
@@ -1356,6 +1277,13 @@ class ModernMainWindow(QMainWindow):
                             self.app_context.secure_token_manager.save_token('webui_url', clean_url)
                             self.app_context.set_api_mode(mode)
                             
+                            # ✅ WEBUI 웹뷰 탭 열기
+                            if self.image_window and hasattr(self.image_window, 'tab_controller'):
+                                self.image_window.tab_controller.add_tab_by_name(
+                                    'SimpleWebViewTabModule',
+                                    api_url=validated_url
+                                )
+                            
                         else:
                             # ❌ 연결 실패 시에만 API 관리 창으로 이동
                             self.status_bar.showMessage(f"❌ WEBUI 연결 실패: {webui_url}", 5000)
@@ -1443,6 +1371,13 @@ class ModernMainWindow(QMainWindow):
                             # 검증된 URL을 키링에 저장
                             self.app_context.secure_token_manager.save_token('comfyui_url', comfyui_url)
                             self.app_context.set_api_mode(mode)
+                            
+                            # ✅ ComfyUI 웹뷰 탭 열기
+                            if self.image_window and hasattr(self.image_window, 'tab_controller'):
+                                self.image_window.tab_controller.add_tab_by_name(
+                                    'SimpleWebViewTabModule',
+                                    api_url=f"http://{comfyui_url}"
+                                )
 
                         else:
                             # ❌ 연결 실패
