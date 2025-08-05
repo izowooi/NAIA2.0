@@ -1,6 +1,6 @@
 import requests
 import zipfile
-import io, time
+import io, time, re, json
 import base64
 from PIL import Image
 from typing import Dict, Any, TYPE_CHECKING, List
@@ -192,6 +192,9 @@ class APIService:
             
             print("📤 NAI API 요청 페이로드:", payload)
             
+            # API payload를 안전하게 저장
+            self.app_context.store_api_payload(payload, "NAI")
+            
             response = requests.post(
                 self.NAI_V3_API_URL,
                 headers=headers,
@@ -227,10 +230,8 @@ class APIService:
                 else:
                     webui_url = f"http://{webui_url}"
             
-            # WEBUI API 엔드포인트 URL 구성
             is_img2img = 'image_bytes' in params and params['image_bytes'] is not None
             is_inpaint = is_img2img and params.get('type') == 'inpaint'
-
             api_endpoint = f"{webui_url}/sdapi/v1/img2img" if is_img2img else f"{webui_url}/sdapi/v1/txt2img"
             
             # WEBUI API 페이로드 구성
@@ -261,16 +262,13 @@ class APIService:
                 payload["denoising_strength"] = params.get('strength', 0.5)
 
                 if is_inpaint:
-                    # 🔥 WebUI 마스크 처리도 개선
                     mask_bytes = params['mask_bytes']
                     processed_mask = self._process_mask_data(mask_bytes, is_nai=False)
                     payload["mask"] = processed_mask
-                    
                     payload["inpainting_fill"] = 1
                     payload["inpaint_full_res"] = True
                     payload["inpaint_full_res_padding"] = 32
             
-            # 나머지 처리는 기존과 동일...
             if payload["enable_hr"]:
                 payload.update({
                     "hr_scale": params.get('hr_scale', 1.5),
@@ -280,25 +278,18 @@ class APIService:
                     "hr_resize_y": int(payload["height"] * params.get('hr_scale', 1.5))
                 })
             
+            # 🔥 개선된 커스텀 파라미터 처리
             if params.get('use_custom_api_params', False):
-                custom_params_text = params.get('custom_api_params', '')
-                if custom_params_text.strip():
-                    try:
-                        import json
-                        custom_params = json.loads(custom_params_text)
-                        if isinstance(custom_params, dict):
-                            payload.update(custom_params)
-                            print(f"✅ Custom API 파라미터 적용됨: {len(custom_params)}개")
-                    except json.JSONDecodeError as e:
-                        print(f"⚠️ Custom API 파라미터 JSON 파싱 실패: {e}")
+                self._apply_custom_api_params(payload, params)
             
             print(f"📤 WEBUI API 요청 페이로드 요약:")
             print(f"   - 엔드포인트: {api_endpoint}")
             print(f"   - 해상도: {payload['width']}x{payload['height']}")
-            print(f"   - 마스크 포함: {is_inpaint}")
+            print(f"   - 커스텀 스크립트: {len(payload.get('alwayson_scripts', {}))}개")
+            
+            self.app_context.store_api_payload(payload, "WEBUI")
             
             headers = {"Content-Type": "application/json"}
-            
             response = requests.post(api_endpoint, headers=headers, json=payload, timeout=300)
             response.raise_for_status()
             
@@ -325,6 +316,88 @@ class APIService:
         except Exception as e:
             print(f"❌ WEBUI API 호출 중 예외 발생: {e}")
             return {'status': 'error', 'message': str(e)}
+
+    def _apply_custom_api_params(self, payload: dict, params: dict) -> None:
+        """
+        커스텀 API 파라미터를 처리하고 payload에 적용합니다.
+        더욱 강력해진 단일 파서 함수를 사용하여 안정성을 높였습니다.
+        """
+        custom_params_text = params.get('custom_api_params', '').strip()
+        if not custom_params_text:
+            return
+
+        # alwayson_scripts 초기화
+        if 'alwayson_scripts' not in payload:
+            payload['alwayson_scripts'] = {}
+
+        try:
+            # 1. 원본 텍스트로 바로 파싱 시도
+            custom_params = json.loads(custom_params_text)
+        except json.JSONDecodeError:
+            # 2. 파싱 실패 시, 지능형 자동 수정 함수 호출
+            print("⚠️ JSON 파싱 실패. 자동 수정 시도...")
+            corrected_text = self._intelligent_json_corrector(custom_params_text)
+            try:
+                # 수정된 텍스트로 다시 파싱
+                custom_params = json.loads(corrected_text)
+            except json.JSONDecodeError as e:
+                # 최종 실패
+                print(f"❌ Custom API 파라미터를 적용할 수 없습니다. 자동 수정 후에도 오류가 발생했습니다.")
+                print(f"   오류 내용: {e}")
+                print(f"   수정 시도한 텍스트: {corrected_text[:200]}...") # 디버깅을 위해 일부 출력
+                return
+
+        # 성공적으로 파싱된 경우 payload에 업데이트
+        if isinstance(custom_params, dict):
+            payload['alwayson_scripts'].update(custom_params)
+            print(f"✅ Custom API 파라미터 적용됨: {len(custom_params)}개 스크립트")
+
+    def _intelligent_json_corrector(self, text: str) -> str:
+        """
+        비정형적인 JSON 텍스트를 지능적으로 수정하여 유효한 JSON으로 변환합니다.
+        - [NEW] placeholder '{…}' 또는 '{...}'를 빈 객체 '{}'로 변환
+        - 외부 중괄호 추가
+        - "args" 배열 내의 "숫자": 패턴 제거
+        - 불필요한 쉼표 제거 (특히 배열 처리 후 발생하는 연속 쉼표)
+        """
+        corrected = text.strip()
+
+        # 0. Placeholder를 빈 객체로 변환 (가장 먼저 처리)
+        # re.DOTALL 플래그는 줄바꿈 문자가 포함된 경우도 처리합니다.
+        # '…' (하나의 문자) 또는 '...' (세 개의 마침표)를 모두 찾습니다.
+        corrected = re.sub(r'{\s*(?:…|\.{3})\s*}', '{}', corrected, flags=re.DOTALL)
+
+        # 1. 외부 중괄호가 없다면 추가하여 완전한 객체 형태로 만들기
+        if not corrected.startswith('{'):
+            corrected = '{' + corrected
+        if not corrected.endswith('}'):
+            corrected = corrected + '}'
+
+        # 2. "args": [...] 블록을 찾아 내부 컨텐츠만 수정 (가장 중요)
+        def fix_args_array(match):
+            # "args": [ 와 ] 사이의 모든 내용을 가져옴
+            content = match.group(1)
+            
+            # content 내부에서 "숫자": 패턴을 모두 제거
+            content_fixed = re.sub(r'"\d+"\s*:\s*', '', content)
+            
+            # "args": [ 와 수정된 내용을 다시 합쳐서 반환
+            return f'"args": [{content_fixed}]'
+
+        # "args" 배열을 찾아 fix_args_array 함수로 처리
+        corrected = re.sub(r'"args"\s*:\s*\[(.*)\]', fix_args_array, corrected, flags=re.DOTALL)
+
+        # 3. 전체 텍스트에서 발생할 수 있는 일반적인 오류 수정
+        # 예: [ true, , false ] -> [ true, false ]
+        corrected = re.sub(r',\s*,', ',', corrected)
+        # 예: [ , true ] -> [ true ]
+        corrected = re.sub(r'\[\s*,', '[', corrected)
+        # 예: { , "key" ] -> { "key" }
+        corrected = re.sub(r'{\s*,', '{', corrected)
+        # 예: "key": value, } -> "key": value }
+        corrected = re.sub(r',(\s*[}\]])', r'\1', corrected)
+        
+        return corrected
 
     def _process_nai_response(self, content: bytes) -> Dict[str, Any] | None:
         """NAI API의 응답(zip)을 처리하여 PIL Image와 원본 바이트를 반환합니다."""

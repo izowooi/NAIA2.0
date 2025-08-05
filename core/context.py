@@ -48,6 +48,10 @@ class AppContext:
         self.session_save_path.mkdir(parents=True, exist_ok=True)
         self.subscribers: Dict[str, List[Callable]] = {}
         self.settings_manager = None
+        
+        # API payload 안전 저장소
+        self._last_api_payload = None
+        self._payload_lock = False
 
     def set_api_mode(self, mode: str):
         """API 모드를 변경하고 모든 구독자에게 알림 (ComfyUI 지원 추가)"""
@@ -148,3 +152,35 @@ class AppContext:
         """Settings 탭에서 설정 관리자를 등록"""
         self.settings_manager = settings_manager
         print("✅ Settings Manager가 AppContext에 등록되었습니다.")
+    
+    def store_api_payload(self, payload: dict, api_type: str = "Unknown"):
+        """API payload를 안전하게 저장"""
+        if self._payload_lock:
+            return  # 이미 처리 중이면 무시
+        
+        try:
+            import copy
+            self._payload_lock = True
+            self._last_api_payload = {
+                'payload': copy.deepcopy(payload),
+                'api_type': api_type,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"⚠️ API payload 저장 실패: {e}")
+        finally:
+            self._payload_lock = False
+    
+    def get_api_payload(self) -> dict:
+        """저장된 API payload를 안전하게 반환"""
+        if self._payload_lock:
+            return {}  # 처리 중이면 빈 딕셔너리 반환
+        
+        try:
+            if self._last_api_payload:
+                import copy
+                return copy.deepcopy(self._last_api_payload)
+            return {}
+        except Exception as e:
+            print(f"⚠️ API payload 읽기 실패: {e}")
+            return {}

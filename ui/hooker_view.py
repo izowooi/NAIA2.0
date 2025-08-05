@@ -1,10 +1,10 @@
 # ui/hooker_view.py
-import os, json
+import os, json, copy
 from .hooker.safe_executer import SafeExecutor
 from PyQt6.Qsci import QsciScintilla, QsciLexerPython
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, 
-    QFrame, QTextEdit, QPushButton, QSplitter, QGroupBox, QCheckBox, QComboBox
+    QFrame, QTextEdit, QPushButton, QSplitter, QGroupBox, QCheckBox, QComboBox, QTabWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QFont, QColor, QDesktopServices
@@ -526,6 +526,9 @@ class HookerView(QWidget):
         self.char_module = None
         self.filter_variables = {}
         
+        # API payload 저장용
+        self.last_payload = None
+        
         self.init_ui()
         self.setup_event_connections()
         self._populate_script_combobox() # ⬅️ 초기 스크립트 목록 로드
@@ -536,9 +539,49 @@ class HookerView(QWidget):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
         
+        # 탭 위젯 생성
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                background-color: #2B2B2B;
+            }
+            QTabBar::tab {
+                background-color: #3D3D3D;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                padding: 8px 16px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #4A9EFF;
+                color: #FFFFFF;
+            }
+            QTabBar::tab:hover {
+                background-color: #4A4A4A;
+            }
+        """)
+        
+        # "Prompt Processing" 탭 생성
+        prompt_processing_tab = self.create_prompt_processing_tab()
+        self.tab_widget.addTab(prompt_processing_tab, "Prompt Processing")
+        
+        # "Generate API" 탭 생성
+        generate_api_tab = self.create_generate_api_tab()
+        self.tab_widget.addTab(generate_api_tab, "Generate API")
+        
+        main_layout.addWidget(self.tab_widget)
+    
+    def create_prompt_processing_tab(self) -> QWidget:
+        """Prompt Processing 탭 내용 생성"""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(8)
+        
         # 상단 컨트롤 패널
         control_panel = self.create_control_panel()
-        main_layout.addWidget(control_panel)
+        tab_layout.addWidget(control_panel)
         
         # 스크롤 가능한 파이프라인 단계 표시 영역
         scroll_area = QScrollArea()
@@ -571,7 +614,50 @@ class HookerView(QWidget):
             splitter.splitterMoved.connect(self._synchronize_splitters)
         
         scroll_area.setWidget(stages_container)
-        main_layout.addWidget(scroll_area)
+        tab_layout.addWidget(scroll_area)
+        
+        return tab_widget
+    
+    def create_generate_api_tab(self) -> QWidget:
+        """Generate API 탭 내용 생성"""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(8, 8, 8, 8)
+        tab_layout.setSpacing(8)
+        
+        # 제목 라벨
+        title_label = QLabel("Generate API Payload")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #4A9EFF;
+                background-color: #1E1E1E;
+                padding: 8px 12px;
+                border-radius: 4px;
+                border-left: 4px solid #4A9EFF;
+            }
+        """)
+        tab_layout.addWidget(title_label)
+        
+        # JSON 표시 영역
+        self.payload_display = QTextEdit()
+        self.payload_display.setReadOnly(True)
+        self.payload_display.setStyleSheet("""
+            QTextEdit {
+                background-color: #1A1A1A;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                color: #FFFFFF;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 14px;
+                padding: 8px;
+            }
+        """)
+        self.payload_display.setPlainText("No payload data available. Generate an image to see the API payload.")
+        tab_layout.addWidget(self.payload_display)
+        
+        return tab_widget
     
     def _synchronize_splitters(self, pos, index):
         """하나의 스플리터가 움직이면 다른 모든 스플리터를 동기화합니다."""
@@ -651,6 +737,7 @@ class HookerView(QWidget):
         """이벤트 연결 설정"""
         if self.app_context:
             self.app_context.subscribe("prompt_generated", self.on_prompt_generated)
+            self.app_context.subscribe("api_request_made", self.on_api_request_made)
             print("🔗 Hooker 뷰: 이벤트 구독 완료")
     
     def toggle_monitoring(self):
@@ -1060,3 +1147,42 @@ class HookerView(QWidget):
             allowed_vars['character_uc'] = char_uc
 
         return allowed_vars
+    
+    def on_api_request_made(self, data: dict):
+        """API 요청 이벤트 핸들러"""
+        payload = data.get('payload', {})
+        self.last_payload = payload
+        self.update_payload_display(payload)
+    
+    def update_payload_display(self, payload: dict):
+        """API 페이로드를 JSON 형태로 표시"""
+        if not payload:
+            self.payload_display.setPlainText("No payload data available.")
+            return
+        
+        try:
+            # payload를 복사하여 mask와 image 데이터 제한
+            display_payload = payload.copy()
+            
+            # mask와 image 관련 필드들의 데이터를 제한
+            for key in ['mask', 'image', 'init_image', 'init_images']:
+                if key in display_payload and display_payload[key]:
+                    if isinstance(display_payload[key], str):
+                        # 문자열인 경우 (base64 데이터)
+                        display_payload[key] = display_payload[key][:50] + "...[truncated]"
+                    elif isinstance(display_payload[key], list):
+                        # 리스트인 경우 (여러 이미지)
+                        truncated_list = []
+                        for item in display_payload[key]:
+                            if isinstance(item, str):
+                                truncated_list.append(item[:50] + "...[truncated]")
+                            else:
+                                truncated_list.append(item)
+                        display_payload[key] = truncated_list
+            
+            # JSON으로 포맷팅하여 표시
+            json_text = json.dumps(display_payload, indent=2, ensure_ascii=False)
+            self.payload_display.setPlainText(json_text)
+            
+        except Exception as e:
+            self.payload_display.setPlainText(f"Error displaying payload: {str(e)}")
