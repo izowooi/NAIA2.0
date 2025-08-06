@@ -17,7 +17,7 @@ from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
 from core.generation_controller import GenerationController
 from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM, get_dynamic_styles
-from ui.scaling_manager import get_scaling_manager, get_scaled_font_size
+from ui.scaling_manager import get_scaling_manager, get_scaled_font_size, get_scaled_size
 from ui.scaling_settings_dialog import ScalingSettingsDialog
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
@@ -467,17 +467,18 @@ class ModernMainWindow(QMainWindow):
         self.image_window = self.create_right_panel()
 
         # 최소 너비 설정 (완전히 숨기기 전 최소 크기)
-        left_panel.setMinimumWidth(720)   # 좌측 패널 최소 너비
-        self.image_window.setMinimumWidth(400)  # 우측 패널 최소 너비
+        left_panel.setMinimumWidth(get_scaled_size(600))   # 좌측 패널 최소 너비 (FHD 대응)
+        self.image_window.setMinimumWidth(get_scaled_size(350))  # 우측 패널 최소 너비 (FHD 대응)
         
         # 선호 크기 설정 (초기 크기)
-        left_panel.setMinimumSize(720, 400)   # 초기 크기 힌트
-        self.image_window.setMinimumSize(800, 400)
+        left_panel.setMinimumSize(get_scaled_size(600), get_scaled_size(350))   # 초기 크기 힌트 (FHD 대응)
+        self.image_window.setMinimumSize(get_scaled_size(650), get_scaled_size(350))  # FHD 대응
 
         splitter.addWidget(left_panel)
         splitter.addWidget(self.image_window)
-        splitter.setStretchFactor(0, 40)
-        splitter.setStretchFactor(1, 60)
+        # FHD 대응: 더 균형잡힌 패널 비율 (45:55)
+        splitter.setStretchFactor(0, 45)
+        splitter.setStretchFactor(1, 55)
 
         main_layout.addWidget(splitter)
 
@@ -546,9 +547,9 @@ class ModernMainWindow(QMainWindow):
         middle_container = self.create_middle_section()
         main_splitter.addWidget(middle_container)
 
-        # 스플리터 비율 설정 (상단 40%, 중간 60%)
-        main_splitter.setStretchFactor(0, 40)
-        main_splitter.setStretchFactor(1, 60)
+        # FHD 대응: 스플리터 비율 설정 (상단 45%, 중간 55%)
+        main_splitter.setStretchFactor(0, 45)
+        main_splitter.setStretchFactor(1, 55)
         
         # 메인 레이아웃에 스플리터 추가
         main_layout.addWidget(main_splitter)
@@ -687,9 +688,9 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.setContentsMargins(10, 6, 10, 6)
         
         # [수정] 결과 레이블을 self 변수로 저장
-        self.result_label1 = QLabel("Searched: 0")
+        self.result_label1 = QLabel("검색: 0")
         self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
-        self.result_label2 = QLabel("Remain: 0")
+        self.result_label2 = QLabel("남음: 0")
         self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
         
         search_result_layout.addWidget(self.result_label1)
@@ -697,22 +698,22 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.addStretch(1)
 
         self.save_settings_btn = QPushButton("💾 설정 저장")
-        self.save_settings_btn.setStyleSheet("""
-            QPushButton {
+        self.save_settings_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #4CAF50;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
                 font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(12)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #5CBF60;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #3E8E41;
-            }
+            }}
         """)
         self.save_settings_btn.setToolTip("현재 모든 설정을 저장합니다")
         
@@ -1109,7 +1110,7 @@ class ModernMainWindow(QMainWindow):
 
         # ComfyUI 섹션 제목
         comfyui_section_label = QLabel("🎨 ComfyUI 옵션")
-        comfyui_section_label.setStyleSheet(DARK_STYLES['label_style'].replace("font-size: 19px;", "font-size: 18px; font-weight: 600;"))
+        comfyui_section_label.setStyleSheet(DARK_STYLES['label_style'].replace(f"font-size: {get_scaled_font_size(19)}px;", f"font-size: {get_scaled_font_size(18)}px; font-weight: 600;"))
         self.comfyui_option_widget_layout.addWidget(comfyui_section_label)
 
         # v-prediction 체크박스
@@ -1829,7 +1830,7 @@ class ModernMainWindow(QMainWindow):
         
         # [신규] 새 검색 시작 시 기존 결과 초기화
         self.search_results = SearchResultModel()
-        self.result_label1.setText("Searched: 0")
+        self.result_label1.setText("검색: 0")
 
         # UI에서 검색 파라미터 수집
         search_params = {
@@ -1860,8 +1861,8 @@ class ModernMainWindow(QMainWindow):
     def on_partial_search_result(self, partial_df: pd.DataFrame):
         """부분 검색 결과를 받아 UI에 즉시 반영"""
         self.search_results.append_dataframe(partial_df)
-        self.result_label1.setText(f"Searched: {self.search_results.get_count()}")
-        self.result_label2.setText(f"Remain: {self.search_results.get_count()}")
+        self.result_label1.setText(f"검색: {self.search_results.get_count()}")
+        self.result_label2.setText(f"남음: {self.search_results.get_count()}")
 
     def on_search_complete(self, total_count: int):
         """검색 완료 시 호출되는 슬롯, 결과 파일 저장"""
@@ -1938,8 +1939,8 @@ class ModernMainWindow(QMainWindow):
         self.search_results.append_dataframe(result_model.get_dataframe())
         self.search_results.deduplicate()
         count = self.search_results.get_count()
-        self.result_label1.setText(f"Searched: {count}")
-        self.result_label2.setText(f"Remain: {count}")
+        self.result_label1.setText(f"검색: {count}")
+        self.result_label2.setText(f"남음: {count}")
         self.status_bar.showMessage(f"✅ 이전 검색 결과 {count}개를 불러왔습니다.", 5000)
         self.load_thread.quit()         
 
@@ -1960,8 +1961,8 @@ class ModernMainWindow(QMainWindow):
         """심층 검색 탭에서 할당된 결과를 메인 UI에 반영"""
         self.search_results = new_search_result
         count = self.search_results.get_count()
-        self.result_label1.setText(f"Searched: {count}")
-        self.result_label2.setText(f"Remain: {count}")
+        self.result_label1.setText(f"검색: {count}")
+        self.result_label2.setText(f"남음: {count}")
         self.status_bar.showMessage(f"✅ 심층 검색 결과 {count}개가 메인에 할당되었습니다.", 5000)
 
     # --- [신규] 프롬프트 생성 관련 메서드들 ---
@@ -2136,7 +2137,7 @@ class ModernMainWindow(QMainWindow):
     # [신규] prompt_popped 시그널을 처리할 슬롯
     def on_prompt_popped(self, remaining_count: int):
         """프롬프트가 하나 사용된 후 남은 행 개수를 UI에 업데이트합니다."""
-        self.result_label2.setText(f"Remain: {remaining_count}")
+        self.result_label2.setText(f"남음: {remaining_count}")
 
     # [신규] 현재 활성화된 API 모드를 반환하는 메서드
     def get_current_api_mode(self) -> str:
@@ -2319,9 +2320,13 @@ class ModernMainWindow(QMainWindow):
             # 사용자의 주 모니터에서 작업 표시줄을 제외한 가용 영역의 정보를 가져옵니다.
             screen_geometry = QApplication.primaryScreen().availableGeometry()
             
-            # 화면 너비와 높이의 85%를 초기 창 크기로 설정합니다.
-            initial_width = int(screen_geometry.width() * 0.85)
-            initial_height = int(screen_geometry.height() * 0.85)
+            # FHD 모니터 대응: 화면 크기에 따라 적절한 비율 설정
+            # FHD(1920x1080) 이하에서는 더 작은 비율 사용
+            width_ratio = 0.75 if screen_geometry.width() <= 1920 else 0.85
+            height_ratio = 0.75 if screen_geometry.height() <= 1080 else 0.85
+            
+            initial_width = int(screen_geometry.width() * width_ratio)
+            initial_height = int(screen_geometry.height() * height_ratio)
             
             # 계산된 크기로 창의 크기를 조절합니다.
             self.resize(initial_width, initial_height)
@@ -2332,9 +2337,11 @@ class ModernMainWindow(QMainWindow):
             print(f"🖥️ 동적 창 크기 설정 완료: {initial_width}x{initial_height}")
 
         except Exception as e:
-            print(f"⚠️ 동적 창 크기 설정 실패: {e}. 기본 크기(1280x720)로 설정합니다.")
-            # 오류 발생 시 안전을 위한 기본값 설정
-            self.resize(1280, 720)
+            print(f"⚠️ 동적 창 크기 설정 실패: {e}. FHD 대응 기본 크기로 설정합니다.")
+            # 오류 발생 시 FHD 모니터에 적합한 기본값 설정
+            default_width = get_scaled_size(1200)
+            default_height = get_scaled_size(650)
+            self.resize(default_width, default_height)
 
     def show_prompt_context_menu(self, pos):
         """main_prompt_textedit에서 우클릭 시 KR_tags 정보를 포함한 커스텀 메뉴를 표시합니다."""
@@ -2377,11 +2384,11 @@ class ModernMainWindow(QMainWindow):
                 title_layout.setContentsMargins(8, 4, 8, 4)
                 
                 tag_label = QLabel(data.get('tag', ''))
-                tag_label.setStyleSheet("font-size: 24px; font-weight: 600; color: #000000;")
+                tag_label.setStyleSheet(f"font-size: {get_scaled_font_size(24)}px; font-weight: 600; color: #000000;")
                 
                 count_val = data.get('count', 0)
                 count_label = QLabel(f"{count_val:,}" if pd.notna(count_val) else "")
-                count_label.setStyleSheet("font-size: 15px; color: #111111;")
+                count_label.setStyleSheet(f"font-size: {get_scaled_font_size(15)}px; color: #111111;")
                 
                 title_layout.addWidget(tag_label)
                 title_layout.addStretch()

@@ -55,8 +55,8 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
         dynamic_styles = get_dynamic_styles()
         
         # 스타일 정의
-        textbox_style = dynamic_styles['textbox']
-        rules_textbox_style = dynamic_styles['textbox']
+        textbox_style = dynamic_styles['compact_textedit']
+        rules_textbox_style = dynamic_styles['compact_textedit']
         label_style = f"""
             QLabel {{
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
@@ -126,7 +126,7 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
 
         # 도움말 프레임
         help_frame = QFrame()
-        help_frame.setStyleSheet(dynamic_styles['frame'])
+        help_frame.setStyleSheet(dynamic_styles['transparent_frame'])
         help_layout = QVBoxLayout(help_frame)
         help_layout.setSpacing(4)
         
