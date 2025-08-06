@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from core.api_validator import APIValidator
 from core.context import AppContext
 from interfaces.base_tab_module import BaseTabModule
@@ -106,7 +107,7 @@ class APIManagementWindow(QWidget):
         layout.addWidget(desc_box)
 
         self.nai_last_verified_label = QLabel("마지막 검증 일자: 정보 없음")
-        self.nai_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px;")
+        self.nai_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px;")
         layout.addWidget(self.nai_last_verified_label)
         
         return frame
@@ -137,7 +138,7 @@ class APIManagementWindow(QWidget):
         
         # 마지막 검증 일자
         self.webui_last_verified_label = QLabel("마지막 검증 일자: 정보 없음")
-        self.webui_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px;")
+        self.webui_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px;")
         layout.addWidget(self.webui_last_verified_label)
 
         return frame
@@ -203,11 +204,11 @@ class APIManagementWindow(QWidget):
         
         # 연결 상태 및 마지막 검증 일자
         self.comfyui_status_label = QLabel("연결 상태: 미연결")
-        self.comfyui_status_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px;")
+        self.comfyui_status_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px;")
         layout.addWidget(self.comfyui_status_label)
         
         self.comfyui_last_verified_label = QLabel("마지막 검증 일자: 정보 없음")
-        self.comfyui_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px;")
+        self.comfyui_last_verified_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px;")
         layout.addWidget(self.comfyui_last_verified_label)
 
         return frame

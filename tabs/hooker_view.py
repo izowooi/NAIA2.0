@@ -11,7 +11,8 @@ from PyQt6.QtGui import QFont, QColor, QDesktopServices
 from core.prompt_context import PromptContext
 from typing import Dict, List, Any, Optional
 from PyQt6.QtWidgets import QDialog, QLineEdit, QDialogButtonBox
-from ui.theme import DARK_STYLES 
+from ui.theme import get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size
 from interfaces.base_tab_module import BaseTabModule
 import copy
 
@@ -53,13 +54,13 @@ class NewScriptDialog(QDialog):
             }}
             QLabel {{ 
                 color: #FFFFFF;
-                font-size: 20px; 
+                font-size: {get_scaled_font_size(20)}px; 
             }}
             QLineEdit {{ 
                 background-color: #3C3F41; 
                 border: 1px solid #555; 
                 padding: 8px; 
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 color: #FFFFFF;
                 border-radius: 4px;
             }}
@@ -70,7 +71,7 @@ class NewScriptDialog(QDialog):
                 padding: 8px 16px; 
                 border: none; 
                 border-radius: 4px; 
-                font-size: 20px; 
+                font-size: {get_scaled_font_size(20)}px; 
             }}
             QPushButton:hover {{ 
                 background-color: #1565C0; 
@@ -127,16 +128,16 @@ class TagDisplayWidget(QWidget):
         self.tag_display = QTextEdit()
         self.tag_display.setReadOnly(True)
         self.tag_display.setMaximumHeight(180)  # 1.5배 증가 (120 -> 180)
-        self.tag_display.setStyleSheet("""
-            QTextEdit {
+        self.tag_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #2D2D2D;
                 border: 1px solid #555555;
                 border-radius: 4px;
                 color: #FFFFFF;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 padding: 4px;
-            }
+            }}
         """)
         layout.addWidget(self.tag_display)
     
@@ -209,16 +210,16 @@ class PipelineStageWidget(QWidget):
         
         # 단계 제목
         stage_label = QLabel(f"📋 {self.stage_name}")
-        stage_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
+        stage_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: {get_scaled_font_size(14)}px;
                 font-weight: bold;
                 color: #4A9EFF;
                 background-color: #1E1E1E;
                 padding: 6px 10px;
                 border-radius: 4px;
                 border-left: 4px solid #4A9EFF;
-            }
+            }}
         """)
         main_layout.addWidget(stage_label)
         
@@ -266,16 +267,16 @@ class PipelineStageWidget(QWidget):
         # Removed Tags (2단계 이후에만 표시)
         self.removed_widget = TagDisplayWidget("Removed Tags")
         self.removed_widget.tag_display.setMaximumHeight(60)
-        self.removed_widget.tag_display.setStyleSheet("""
-            QTextEdit {
+        self.removed_widget.tag_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #2D1A1A;
                 border: 1px solid #AA5555;
                 border-radius: 4px;
                 color: #FFAAAA;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 padding: 4px;
-            }
+            }}
         """)
         main_layout.addWidget(self.removed_widget)
         self.toggle_button = QPushButton("▼ 사용자 조작 영역 (접기)")
@@ -508,14 +509,14 @@ class PipelineStageWidget(QWidget):
             char_label = QLabel(f"C{i+1}: {display_prompt}")
             char_label.setFixedHeight(50)
             char_label.setWordWrap(True) # 자동 줄바꿈
-            char_label.setStyleSheet("""
-                QLabel {
+            char_label.setStyleSheet(f"""
+                QLabel {{
                     background-color: #2C3E50;
                     color: #ECF0F1;
                     padding: 8px;
                     border-radius: 3px;
-                    font-size: 18px;
-                }
+                    font-size: {get_scaled_font_size(18)}px;
+                }}
             """)
             self.character_display_layout.addWidget(char_label)
 
@@ -652,32 +653,32 @@ class HookerView(QWidget):
         
         # 제목 라벨
         title_label = QLabel("Generate API Payload")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: {get_scaled_font_size(16)}px;
                 font-weight: bold;
                 color: #4A9EFF;
                 background-color: #1E1E1E;
                 padding: 8px 12px;
                 border-radius: 4px;
                 border-left: 4px solid #4A9EFF;
-            }
+            }}
         """)
         tab_layout.addWidget(title_label)
         
         # JSON 표시 영역
         self.payload_display = QTextEdit()
         self.payload_display.setReadOnly(True)
-        self.payload_display.setStyleSheet("""
-            QTextEdit {
+        self.payload_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #1A1A1A;
                 border: 1px solid #555555;
                 border-radius: 4px;
                 color: #FFFFFF;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
                 padding: 8px;
-            }
+            }}
         """)
         self.payload_display.setPlainText("No payload data available. Generate an image to see the API payload.")
         tab_layout.addWidget(self.payload_display)
@@ -715,7 +716,8 @@ class HookerView(QWidget):
 
         # 1. 후킹 기능 활성화 체크박스
         self.enable_hooking_checkbox = QCheckBox("후킹 기능 활성화")
-        self.enable_hooking_checkbox.setStyleSheet(DARK_STYLES['dark_checkbox'] + "font-size: 18px;")
+        dynamic_styles = get_dynamic_styles()
+        self.enable_hooking_checkbox.setStyleSheet(dynamic_styles['dark_checkbox'])
         self.enable_hooking_checkbox.toggled.connect(self._on_enable_hooking_toggled)
         layout.addWidget(self.enable_hooking_checkbox)
 
@@ -723,17 +725,17 @@ class HookerView(QWidget):
 
         # 2. 스크립트 선택 UI
         script_label = QLabel("스크립트:")
-        script_label.setStyleSheet(DARK_STYLES['label_style'] + "font-size: 18px;")
+        script_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(script_label)
         
         self.script_combo = QComboBox()
         self.script_combo.setMinimumWidth(300) # ⬅️ 너비 1.5배 증가
-        self.script_combo.setStyleSheet(DARK_STYLES['compact_combobox'] + "font-size: 18px;")
+        self.script_combo.setStyleSheet(dynamic_styles['compact_combobox'])
         self.script_combo.currentIndexChanged.connect(self._on_script_selected)
         layout.addWidget(self.script_combo)
 
         # 3. 버튼들
-        button_style = DARK_STYLES['secondary_button'] + "font-size: 18px; padding: 8px 16px;"
+        button_style = dynamic_styles['secondary_button']
 
         self.save_button = QPushButton("저장")
         self.save_button.setStyleSheet(button_style)

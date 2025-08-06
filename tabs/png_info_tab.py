@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PIL import Image, ImageQt, ImageGrab
 from PIL.PngImagePlugin import PngInfo
 from ui.theme import DARK_COLORS, DARK_STYLES
+from ui.scaling_manager import get_scaled_font_size
 from interfaces.base_tab_module import BaseTabModule
 import json
 import re
@@ -262,7 +263,7 @@ class PngInfoTab(QWidget):
                 background-color: {DARK_COLORS['bg_secondary']};
                 text-align: center;
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
                 color: {DARK_COLORS['text_primary']};
                 height: 20px;
             }}
@@ -296,7 +297,7 @@ class PngInfoTab(QWidget):
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-weight: 500;
                 color: {DARK_COLORS['text_secondary']};
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
             }}
             QPushButton:hover {{
                 background-color: {DARK_COLORS['error']};
@@ -326,7 +327,7 @@ class PngInfoTab(QWidget):
             QLabel {{
                 color: {DARK_COLORS['text_primary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 18px;
+                font-size: {get_scaled_font_size(18)}px;
                 font-weight: 600;
                 margin-bottom: 8px;
             }}
@@ -352,7 +353,7 @@ class PngInfoTab(QWidget):
                     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                     font-weight: 500;
                     color: {DARK_COLORS['text_secondary']};
-                    font-size: 16px;
+                    font-size: {get_scaled_font_size(16)}px;
                 }}
                 QPushButton:checked {{
                     background-color: {DARK_COLORS['accent_blue']};
@@ -400,7 +401,7 @@ class PngInfoTab(QWidget):
                 color: {DARK_COLORS['text_primary']};
                 selection-background-color: {DARK_COLORS['accent_blue']};
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 line-height: 1.4;
             }}
             QTextEdit:focus {{
@@ -447,7 +448,7 @@ class PngInfoTab(QWidget):
                 color: {DARK_COLORS['text_primary']};
                 selection-background-color: {DARK_COLORS['accent_blue']};
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 line-height: 1.4;
             }}
             QTextEdit:focus {{
@@ -851,7 +852,7 @@ class PngInfoTab(QWidget):
                 QLabel {{
                     color: {DARK_COLORS['text_secondary']};
                     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                    font-size: 16px;
+                    font-size: {get_scaled_font_size(16)}px;
                     padding: 20px;
                 }}
             """)
@@ -886,7 +887,7 @@ class PngInfoTab(QWidget):
                     border-radius: 4px;
                     margin-top: 12px;
                     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                    font-size: 16px;
+                    font-size: {get_scaled_font_size(16)}px;
                     font-weight: 600;
                 }}
                 QGroupBox::title {{
@@ -924,7 +925,7 @@ class PngInfoTab(QWidget):
                 font-weight: 600;
                 color: {DARK_COLORS['text_primary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 15px;
+                font-size: {get_scaled_font_size(15)}px;
                 min-width: 100px;
             }}
         """)
@@ -945,7 +946,7 @@ class PngInfoTab(QWidget):
                     padding: 4px;
                     color: {DARK_COLORS['text_primary']};
                     font-family: 'Consolas', 'Monaco', monospace;
-                    font-size: 14px;
+                    font-size: {get_scaled_font_size(14)}px;
                 }}
             """)
         else:
@@ -959,7 +960,7 @@ class PngInfoTab(QWidget):
                     padding: 4px 8px;
                     color: {DARK_COLORS['text_primary']};
                     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                    font-size: 15px;
+                    font-size: {get_scaled_font_size(15)}px;
                 }}
             """)
         
@@ -998,7 +999,7 @@ class PngInfoTab(QWidget):
             QLabel {{
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 padding: 20px;
             }}
         """)
@@ -1073,7 +1074,7 @@ class ImageDropArea(QLabel):
                 background-color: {DARK_COLORS['bg_secondary']};
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 font-weight: 500;
                 padding: 20px;
             }}
@@ -1089,7 +1090,7 @@ class ImageDropArea(QLabel):
                     background-color: {DARK_COLORS['bg_secondary']};
                     color: {DARK_COLORS['success']};
                     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                    font-size: 16px;
+                    font-size: {get_scaled_font_size(16)}px;
                     font-weight: 600;
                     padding: 20px;
                 }}
@@ -1103,7 +1104,7 @@ class ImageDropArea(QLabel):
                 background-color: {DARK_COLORS['bg_secondary']};
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 font-weight: 500;
                 padding: 20px;
             }}
@@ -1176,7 +1177,7 @@ class ImageDropArea(QLabel):
                 background-color: {DARK_COLORS['bg_secondary']};
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 font-weight: 500;
                 padding: 20px;
             }}

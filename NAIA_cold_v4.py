@@ -16,7 +16,9 @@ from PyQt6.QtWidgets import (
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
 from core.generation_controller import GenerationController
-from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM
+from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM, get_dynamic_styles
+from ui.scaling_manager import get_scaling_manager, get_scaled_font_size
+from ui.scaling_settings_dialog import ScalingSettingsDialog
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
@@ -285,12 +287,17 @@ class ModernMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NAIA v2.0.0 Dev")
+        
+        # 스케일링 매니저 초기화 (UI 생성 전에 먼저 초기화)
+        self.scaling_manager = get_scaling_manager()
+        self.scaling_manager.scaling_changed.connect(self.on_scaling_changed)
+        
         self.set_initial_window_size()
         self.kr_tags_df = self._load_kr_tags()
         self.params_expanded = False
         
-        # 어두운 테마 적용
-        self.setStyleSheet(CUSTOM["main"])
+        # 동적 테마 적용
+        self.apply_dynamic_styles()
         
         # 새로 추가: 파라미터 확장 상태 추적
         self.params_expanded = False
@@ -358,6 +365,82 @@ class ModernMainWindow(QMainWindow):
 
         self.resolution_is_detected = False
 
+    def apply_dynamic_styles(self):
+        """동적 스타일시트 적용"""
+        try:
+            dynamic_styles = get_dynamic_styles()
+            # 메인 윈도우 스타일 적용 (CUSTOM["main"] 대신 동적 스타일 사용)
+            main_style = f"""
+                QMainWindow {{
+                    background-color: {DARK_COLORS['bg_primary']};
+                    color: {DARK_COLORS['text_primary']};
+                    font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                    font-size: {get_scaled_font_size(14)}px;
+                }}
+            """
+            self.setStyleSheet(main_style)
+            print(f"동적 UI 스케일링 적용됨 (스케일: {self.scaling_manager.get_scale_factor():.2f}x)")
+        except Exception as e:
+            print(f"동적 스타일 적용 실패: {e}")
+            # 폴백: 기존 정적 스타일 사용
+            self.setStyleSheet(CUSTOM["main"])
+    
+    def on_scaling_changed(self, new_scale):
+        """스케일링 변경 시 호출"""
+        print(f"UI 스케일링이 {new_scale:.2f}x로 변경되었습니다.")
+        self.apply_dynamic_styles()
+        # 메뉴바에 UI 설정 추가할 것이라면 여기서 업데이트
+        self.refresh_all_ui_elements()
+    
+    def refresh_all_ui_elements(self):
+        """모든 UI 요소 새로고침"""
+        try:
+            dynamic_styles = get_dynamic_styles()
+            
+            # 기존 위젯들의 스타일 업데이트
+            for widget in self.findChildren(QPushButton):
+                # 기본 버튼 스타일 클래스를 확인하고 적절한 동적 스타일 적용
+                current_style = widget.styleSheet()
+                if "accent_blue" in current_style:
+                    widget.setStyleSheet(dynamic_styles.get('primary_button', ''))
+                elif "bg_tertiary" in current_style:
+                    widget.setStyleSheet(dynamic_styles.get('secondary_button', ''))
+            
+            for widget in self.findChildren(QLabel):
+                if 'label_style' in widget.styleSheet() or not widget.styleSheet():
+                    widget.setStyleSheet(dynamic_styles.get('label_style', ''))
+            
+            for widget in self.findChildren(QLineEdit):
+                widget.setStyleSheet(dynamic_styles.get('compact_lineedit', ''))
+                
+            for widget in self.findChildren(QTextEdit):
+                widget.setStyleSheet(dynamic_styles.get('compact_textedit', ''))
+            
+            for widget in self.findChildren(QCheckBox):
+                widget.setStyleSheet(dynamic_styles.get('dark_checkbox', ''))
+            
+            # 폰트 크기가 하드코딩된 위젯들 업데이트
+            if hasattr(self, 'progress_label'):
+                scaled_size = get_scaled_font_size(16)
+                self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {scaled_size}px; margin-right: 10px;")
+                
+            if hasattr(self, 'result_label1'):
+                scaled_size = get_scaled_font_size(18)  
+                self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {scaled_size}px;")
+                
+            if hasattr(self, 'result_label2'):
+                scaled_size = get_scaled_font_size(18)
+                self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {scaled_size}px;")
+                
+        except Exception as e:
+            print(f"UI 요소 새로고침 중 오류: {e}")
+    
+    def show_scaling_settings(self):
+        """UI 스케일링 설정 다이얼로그 표시"""
+        dialog = ScalingSettingsDialog(self)
+        dialog.scaling_changed.connect(self.on_scaling_changed)
+        dialog.exec()
+
     # 자동완성 기능 사용 가능 여부를 확인하는 헬퍼 메서드
     def is_autocomplete_available(self) -> bool:
         """자동완성 기능이 사용 가능한지 확인합니다."""
@@ -376,6 +459,7 @@ class ModernMainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("1단계 구현 완료: 메인 스플리터 통합")
         self.status_bar.setStyleSheet(CUSTOM["status_bar"])
+        
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
@@ -581,7 +665,7 @@ class ModernMainWindow(QMainWindow):
         rating_layout.addStretch(1)
 
         self.progress_label = QLabel("")
-        self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px; margin-right: 10px;")
+        self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px; margin-right: 10px;")
         rating_layout.addWidget(self.progress_label)
         
         self.search_btn = QPushButton("검색")
@@ -604,9 +688,9 @@ class ModernMainWindow(QMainWindow):
         
         # [수정] 결과 레이블을 self 변수로 저장
         self.result_label1 = QLabel("Searched: 0")
-        self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
+        self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
         self.result_label2 = QLabel("Remain: 0")
-        self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
+        self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
         
         search_result_layout.addWidget(self.result_label1)
         search_result_layout.addWidget(self.result_label2)

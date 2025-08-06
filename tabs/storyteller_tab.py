@@ -12,6 +12,7 @@ from PIL.ImageQt import ImageQt
 
 from interfaces.base_tab_module import BaseTabModule
 from ui.theme import DARK_STYLES, CUSTOM, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from tabs.storyteller.story_box import StoryBox
 from tabs.storyteller.story_item_widget import StoryItemWidget
 from tabs.storyteller.custom_dialogs import CustomInputDialog, ConfirmationDialog, style_qmessagebox
@@ -121,7 +122,7 @@ class StorytellerTab(QWidget):
         # --- 타이틀 및 새 프로젝트 추가 버튼 ---
         title_layout = QHBoxLayout()
         title_label = QLabel("프로젝트 선택")
-        title_label.setStyleSheet(f"{DARK_STYLES['label_style']} font-size: 18px; font-weight: 600;")
+        title_label.setStyleSheet(f"{DARK_STYLES['label_style']} font-size: {get_scaled_font_size(18)}px; font-weight: 600;")
         
         add_project_btn = QPushButton("➕ 새 프로젝트")
         add_project_btn.setStyleSheet(DARK_STYLES['secondary_button'])

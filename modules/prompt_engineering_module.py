@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import QVBoxLayout, QLabel, QWidget, QTextEdit, QCheckBox
 from interfaces.base_module import BaseMiddleModule
 from core.prompt_context import PromptContext
 from interfaces.mode_aware_module import ModeAwareModule
+from ui.theme import get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size
 from typing import Dict, Any
 import os, json
 
@@ -98,60 +100,47 @@ class PromptEngineeringModule(BaseMiddleModule, ModeAwareModule):
         layout = QVBoxLayout(widget)
         layout.setSpacing(6)
 
+        # 동적 스타일 가져오기
+        dynamic_styles = get_dynamic_styles()
+        
         # 선행 고정 프롬프트
         pre_label = QLabel("선행 고정 프롬프트:")
-        PEM_textbox_style = """
-            QTextEdit {
-                background-color: #2B2B2B;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                padding: 8px;
-                color: #FFFFFF;
-                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 22px;
-            }
-        """
-
-        if parent and hasattr(parent, 'get_dark_style'):
-            pre_label.setStyleSheet(parent.get_dark_style('label_style'))
+        pre_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(pre_label)
 
         self.pre_textedit = QTextEdit()
         self.pre_textedit.setFixedHeight(160)
-        self.pre_textedit.setStyleSheet(PEM_textbox_style)
+        self.pre_textedit.setStyleSheet(dynamic_styles['compact_textedit'])
         layout.addWidget(self.pre_textedit)
 
         # 후행 고정 프롬프트
         post_label = QLabel("후행 고정 프롬프트:")
-        if parent and hasattr(parent, 'get_dark_style'):
-            post_label.setStyleSheet(parent.get_dark_style('label_style'))
+        post_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(post_label)
 
         self.post_textedit = QTextEdit()
         self.post_textedit.setFixedHeight(160)
-        self.post_textedit.setStyleSheet(PEM_textbox_style)
+        self.post_textedit.setStyleSheet(dynamic_styles['compact_textedit'])
         layout.addWidget(self.post_textedit)
 
         # 자동 숨김 프롬프트
         auto_hide_label = QLabel("자동 숨김 프롬프트:")
-        if parent and hasattr(parent, 'get_dark_style'):
-            auto_hide_label.setStyleSheet(parent.get_dark_style('label_style'))
+        auto_hide_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(auto_hide_label)
 
         self.auto_hide_textedit = QTextEdit()
         self.auto_hide_textedit.setFixedHeight(160)
-        self.auto_hide_textedit.setStyleSheet(PEM_textbox_style)
+        self.auto_hide_textedit.setStyleSheet(dynamic_styles['compact_textedit'])
         layout.addWidget(self.auto_hide_textedit)
 
         # 프롬프트 전처리 옵션들
         preprocessing_label = QLabel("프롬프트 전처리 옵션:")
-        if parent and hasattr(parent, 'get_dark_style'):
-            preprocessing_label.setStyleSheet(parent.get_dark_style('label_style'))
+        preprocessing_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(preprocessing_label)
 
         for text in self.option_key_map.keys():
             cb = QCheckBox(text)
-            cb.setStyleSheet(parent.get_dark_style('dark_checkbox'))
+            cb.setStyleSheet(dynamic_styles['dark_checkbox'])
             layout.addWidget(cb)
             self.preprocessing_checkboxes[text] = cb
 

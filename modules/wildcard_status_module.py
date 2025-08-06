@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget, QLabel, QTextEdit, QPushButton
 from interfaces.base_module import BaseMiddleModule
 from core.context import AppContext
 from core.prompt_context import PromptContext
-from ui.theme import DARK_STYLES # 테마 스타일 import
+from ui.theme import DARK_STYLES, get_dynamic_styles # 테마 스타일 import
+from ui.scaling_manager import get_scaled_font_size
 
 class WildcardStatusModule(BaseMiddleModule):
     """
@@ -39,26 +40,29 @@ class WildcardStatusModule(BaseMiddleModule):
         layout.setSpacing(8)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # 동적 스타일 가져오기
+        dynamic_styles = get_dynamic_styles()
+        
         # 1. 사용된 와일드카드 내역 섹션
         history_label = QLabel("이번에 사용된 와일드카드")
-        history_label.setStyleSheet(DARK_STYLES['label_style'])
+        history_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(history_label)
 
         self.history_textbox = QTextEdit()
         self.history_textbox.setReadOnly(True)
-        self.history_textbox.setStyleSheet(DARK_STYLES['compact_textedit'])
+        self.history_textbox.setStyleSheet(dynamic_styles['compact_textedit'])
         self.history_textbox.setMinimumHeight(100)
         self.history_textbox.setPlaceholderText("랜덤 프롬프트 생성 시 사용된 와일드카드 내역이 표시됩니다.")
         layout.addWidget(self.history_textbox)
 
         # 2. 순차 와일드카드 상태 섹션
         state_label = QLabel("순차/종속 와일드카드 상태 (현재 / 전체)")
-        state_label.setStyleSheet(DARK_STYLES['label_style'])
+        state_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(state_label)
 
         self.state_textbox = QTextEdit()
         self.state_textbox.setReadOnly(True)
-        self.state_textbox.setStyleSheet(DARK_STYLES['compact_textedit'])
+        self.state_textbox.setStyleSheet(dynamic_styles['compact_textedit'])
         self.state_textbox.setFixedHeight(80)
         self.state_textbox.setPlaceholderText("활성화된 순차/종속 와일드카드가 없습니다.")
         layout.addWidget(self.state_textbox)
@@ -70,7 +74,9 @@ class WildcardStatusModule(BaseMiddleModule):
         
         self.count_label = QLabel(f"로드된 와일드카드: {total_wildcards}개")
         # 왼쪽 정렬 및 작은 폰트 스타일 적용
-        self.count_label.setStyleSheet(DARK_STYLES['label_style'] + "font-size: 12px; color: #B0B0B0;")
+        dynamic_styles = get_dynamic_styles()
+        font_size = get_scaled_font_size(12)
+        self.count_label.setStyleSheet(dynamic_styles['label_style'] + f"font-size: {font_size}px; color: #B0B0B0;")
         bottom_layout.addWidget(self.count_label)
         
         # 스트레치를 추가하여 버튼을 오른쪽으로 밀어냄

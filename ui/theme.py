@@ -1,3 +1,10 @@
+"""
+동적 UI 테마 시스템
+스케일링 매니저를 활용한 반응형 UI 지원
+"""
+
+from ui.scaling_manager import get_scaled_font_size, get_scaled_size
+
 # 개선된 어두운 테마 색상 팔레트
 DARK_COLORS = {
     'bg_primary': '#212121',      # 메인 배경 (매우 어두운 회색)
@@ -18,7 +25,293 @@ DARK_COLORS = {
     'error': '#F44336',           # 오류 색상
 }
 
-# 어두운 테마 스타일시트
+
+def generate_dark_styles():
+    """현재 스케일링 팩터에 맞는 동적 스타일시트 생성"""
+    
+    # 기본 폰트 크기 정의 (QHD 기준)
+    BASE_FONT_SIZES = {
+        'main': 21,
+        'title': 21, 
+        'button': 20,
+        'input': 22,
+        'input_small': 19,
+        'label': 19,
+        'label_small': 16,
+        'tab': 19,
+        'combobox': 19,
+        'status': 18,
+        'compact': 16,
+        'tiny': 14,
+        'large': 24
+    }
+    
+    # 기본 크기 정의 (QHD 기준)
+    BASE_SIZES = {
+        'padding_small': 4,
+        'padding_medium': 8,
+        'padding_large': 12,
+        'margin_small': 2,
+        'margin_medium': 4,
+        'border_radius': 4,
+        'border_radius_large': 6,
+        'button_height': 32,
+        'input_height': 36,
+        'checkbox_size': 18,
+        'icon_small': 16,
+        'icon_medium': 20,
+        'icon_large': 24,
+        'scrollbar_width': 8,
+        'slider_handle': 18
+    }
+    
+    # 스케일 적용된 값들 계산
+    fonts = {key: get_scaled_font_size(size) for key, size in BASE_FONT_SIZES.items()}
+    sizes = {key: get_scaled_size(size) for key, size in BASE_SIZES.items()}
+    
+    return {
+        'main_container': f"""
+            QWidget {{
+                background-color: {DARK_COLORS['bg_primary']};
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['main']}px;
+                font-weight: 400;
+            }}
+        """,
+        
+        'collapsible_box': f"""
+            QWidget {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius_large']}px;
+                margin: {sizes['margin_small']}px {sizes['margin_medium']}px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 600;
+                font-size: {fonts['title']}px;
+                color: {DARK_COLORS['text_primary']};
+                text-align: left;
+            }}
+            QToolButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+        """,
+        
+        'compact_card': f"""
+            QFrame {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px;
+                margin: {sizes['margin_small']}px {sizes['margin_medium']}px;
+            }}
+        """,
+        
+        'primary_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['accent_blue']};
+                border: none;
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] * 2}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 600;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['button']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['accent_blue_hover']};
+            }}
+            QPushButton:pressed {{
+                background-color: #0D47A1;
+            }}
+        """,
+        
+        'secondary_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] + 4}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['button']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QPushButton:pressed {{
+                background-color: {DARK_COLORS['bg_pressed']};
+            }}
+        """,
+        
+        'compact_textedit': f"""
+            QTextEdit {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px;
+                color: {DARK_COLORS['text_primary']};
+                selection-background-color: {DARK_COLORS['accent_blue']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['input']}px;
+            }}
+            QTextEdit:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+        """,
+        
+        'compact_lineedit': f"""
+            QLineEdit {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['input_small']}px;
+                min-height: {sizes['input_height']}px;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+        """,
+        
+        'dark_checkbox': f"""
+            QCheckBox {{
+                background-color: transparent;
+                spacing: {sizes['padding_medium']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['label']}px;
+                color: {DARK_COLORS['text_primary']};
+            }}
+            QCheckBox::indicator {{
+                width: {sizes['checkbox_size']}px;
+                height: {sizes['checkbox_size']}px;
+                border: 1px solid {DARK_COLORS['border_light']};
+                border-radius: 3px;
+                background-color: {DARK_COLORS['bg_secondary']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['accent_blue']};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 1px solid {DARK_COLORS['accent_blue_light']};
+            }}
+        """,
+        
+        'dark_tabs': f"""
+            QTabWidget::pane {{
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                background-color: {DARK_COLORS['bg_tertiary']};
+                margin-top: 2px;
+            }}
+            QTabBar::tab {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-bottom: none;
+                border-top-left-radius: {sizes['border_radius']}px;
+                border-top-right-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                margin-right: 1px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_secondary']};
+                font-size: {fonts['tab']}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                color: {DARK_COLORS['text_primary']};
+                border-bottom: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {DARK_COLORS['bg_hover']};
+                color: {DARK_COLORS['text_primary']};
+            }}
+        """,
+        
+        'compact_combobox': f"""
+            QComboBox {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_small']}px {sizes['padding_large']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['combobox']}px;
+                min-height: {sizes['input_height']}px;
+            }}
+            QComboBox:hover {{
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: {sizes['icon_medium']}px;
+            }}
+            QComboBox::down-arrow {{
+                width: 0px;
+                height: 0px;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid {DARK_COLORS['text_secondary']};
+            }}
+        """,
+        
+        'compact_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_small']}px {sizes['padding_large']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['compact']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QPushButton:pressed {{
+                background-color: {DARK_COLORS['bg_pressed']};
+            }}
+        """,
+        
+        'transparent_frame': f"""
+            QFrame {{
+                background-color: transparent;
+                border: none;
+            }}
+        """,
+        
+        'label_style': f"""
+            QLabel {{
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['label']}px;
+            }}
+        """,
+    }
+
+
+def get_dynamic_styles():
+    """현재 스케일링에 맞는 동적 스타일 생성"""
+    return generate_dark_styles()
+
+
+# 하위 호환성을 위한 기본 스타일 (deprecated)
 DARK_STYLES = {
     'main_container': f"""
         QWidget {{

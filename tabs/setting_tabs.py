@@ -5,7 +5,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 from interfaces.base_tab_module import BaseTabModule
-from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.theme import DARK_STYLES, DARK_COLORS, get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size, get_scaling_manager
+from ui.scaling_settings_dialog import ScalingSettingsDialog
 import json
 import os
 from pathlib import Path
@@ -187,7 +189,7 @@ class SettingsWidget(QWidget):
         group_box.setStyleSheet(f"""
             QGroupBox {{
                 font-weight: bold;
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
                 color: {DARK_COLORS['text_primary']};
                 border: 2px solid {DARK_COLORS['border']};
                 border-radius: 8px;
@@ -322,22 +324,38 @@ class SettingsWidget(QWidget):
         """UI 설정 섹션"""
         section, layout = self._create_section_frame("🎨 UI 설정")
         
-        # TODO: 폰트 크기 기능은 프로그램 전체 폰트 변경이 복잡하여 구현 예정
-        # font_layout = QHBoxLayout()
-        # font_label = QLabel("폰트 크기:")
-        # font_label.setStyleSheet(DARK_STYLES['label_style'])
-        # self.font_size_spinbox = QSpinBox()
-        # self.font_size_spinbox.setRange(8, 24)
-        # self.font_size_spinbox.setStyleSheet(DARK_STYLES['compact_spinbox'])
-        # self.font_size_spinbox.valueChanged.connect(self._on_font_size_changed)
-        # font_layout.addWidget(font_label)
-        # font_layout.addWidget(self.font_size_spinbox)
-        # font_layout.addStretch()
-        # layout.addLayout(font_layout)
+        # UI 스케일링 설정
+        scaling_layout = QHBoxLayout()
+        
+        # 현재 스케일링 정보 표시
+        scaling_manager = get_scaling_manager()
+        current_scale = scaling_manager.get_scale_factor()
+        auto_scaling = scaling_manager.is_auto_scaling_enabled()
+        user_scale = scaling_manager.get_user_scale_factor()
+        
+        if auto_scaling:
+            scale_text = f"자동 스케일링 ({current_scale:.1f}x)"
+        else:
+            scale_text = f"수동 스케일링 ({user_scale:.1f}x)"
+            
+        self.ui_scale_label = QLabel(f"UI 크기: {scale_text}")
+        dynamic_styles = get_dynamic_styles()
+        self.ui_scale_label.setStyleSheet(dynamic_styles['label_style'])
+        
+        # UI 크기 설정 버튼
+        ui_scale_btn = QPushButton("UI 크기 설정")
+        ui_scale_btn.setStyleSheet(dynamic_styles['secondary_button'])
+        ui_scale_btn.clicked.connect(self._open_scaling_settings)
+        ui_scale_btn.setToolTip("화면 해상도에 맞는 UI 크기를 설정합니다")
+        
+        scaling_layout.addWidget(self.ui_scale_label)
+        scaling_layout.addStretch()
+        scaling_layout.addWidget(ui_scale_btn)
+        layout.addLayout(scaling_layout)
         
         # 자동 저장
         self.auto_save_checkbox = QCheckBox("설정 자동 저장")
-        self.auto_save_checkbox.setStyleSheet(DARK_STYLES['dark_checkbox'])
+        self.auto_save_checkbox.setStyleSheet(dynamic_styles['dark_checkbox'])
         self.auto_save_checkbox.toggled.connect(self._on_auto_save_toggled)
         layout.addWidget(self.auto_save_checkbox)
         
@@ -600,3 +618,29 @@ class SettingsWidget(QWidget):
         """설정 데이터 유효성 검사"""
         required_keys = ['autocomplete', 'save_directory', 'ui']
         return all(key in settings for key in required_keys)
+    
+    def _open_scaling_settings(self):
+        """UI 스케일링 설정 다이얼로그 열기"""
+        dialog = ScalingSettingsDialog(self)
+        dialog.scaling_changed.connect(self._on_scaling_changed)
+        dialog.exec()
+    
+    def _on_scaling_changed(self, new_scale: float):
+        """스케일링 변경 시 호출"""
+        # 라벨 텍스트 업데이트
+        scaling_manager = get_scaling_manager()
+        auto_scaling = scaling_manager.is_auto_scaling_enabled()
+        user_scale = scaling_manager.get_user_scale_factor()
+        current_scale = scaling_manager.get_scale_factor()
+        
+        if auto_scaling:
+            scale_text = f"자동 스케일링 ({current_scale:.1f}x)"
+        else:
+            scale_text = f"수동 스케일링 ({user_scale:.1f}x)"
+            
+        self.ui_scale_label.setText(f"UI 크기: {scale_text}")
+        
+        # 메인 윈도우의 스케일링 변경 이벤트 호출
+        if (hasattr(self.app_context, 'main_window') and 
+            hasattr(self.app_context.main_window, 'on_scaling_changed')):
+            self.app_context.main_window.on_scaling_changed(new_scale)

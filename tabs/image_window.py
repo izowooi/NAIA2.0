@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QObject, QThread
 from PyQt6.QtGui import QPixmap, QMouseEvent, QPainter, QColor, QAction, QKeyEvent
 from PIL import Image, ImageQt
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from interfaces.base_tab_module import BaseTabModule
 import piexif, io
 
@@ -165,7 +166,7 @@ class ImageHistoryWindow(QWidget):
         title_label.setStyleSheet(f"""
             QLabel {{
                 color: {DARK_COLORS['text_primary']};
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
                 font-weight: bold;
                 padding: 4px;
             }}
@@ -898,18 +899,18 @@ class ImageWindow(QWidget):
 
         # 초기화 버튼
         clear_button = QPushButton(" 🗑️ ")
-        clear_button.setStyleSheet("""
-            QPushButton {
+        clear_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #d32f2f;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
-                font-size: 18px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(18)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #f44336;
-            }
+            }}
         """)
         clear_button.clicked.connect(self.clear_all)
         control_layout.addWidget(self.auto_save_checkbox)
@@ -950,7 +951,7 @@ class ImageWindow(QWidget):
                 border: 1px solid {DARK_COLORS['border']};
                 border-radius: 8px;
                 color: {DARK_COLORS['text_secondary']};
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
             }}
         """)
         self.main_image_label.setText("Generated Image")
@@ -966,7 +967,7 @@ class ImageWindow(QWidget):
             QLabel {{
                 color: {DARK_COLORS['text_primary']};
                 font-weight: bold;
-                font-size: 12px;
+                font-size: {get_scaled_font_size(12)}px;
                 padding: 2px 4px;
             }}
         """)

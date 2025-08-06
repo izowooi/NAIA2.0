@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer, QThread, QObject, pyqtSignal
 from interfaces.base_module import BaseMiddleModule
+from ui.theme import get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size
 import os
 import json
 import random
@@ -195,8 +197,12 @@ class AutomationModule(BaseMiddleModule):
             label_style = ""
             checkbox_style = ""
         
+        # 동적 스타일 가져오기
+        dynamic_styles = get_dynamic_styles()
+        input_style = dynamic_styles.get('input_field', "")
+        
         # 자동화 설정 위젯 생성
-        automation_widget = self.create_automation_widget(parent, label_style, checkbox_style)
+        automation_widget = self.create_automation_widget(parent, label_style, checkbox_style, input_style)
         layout.addWidget(automation_widget)
         
         # 🆕 생성된 위젯 저장 (가시성 제어용)
@@ -213,7 +219,7 @@ class AutomationModule(BaseMiddleModule):
         
         return widget
     
-    def create_automation_widget(self, parent, label_style, checkbox_style) -> QWidget:
+    def create_automation_widget(self, parent, label_style, checkbox_style, input_style) -> QWidget:
         """자동화 설정 위젯 생성 (기존 코드 유지)"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -225,7 +231,7 @@ class AutomationModule(BaseMiddleModule):
         delay_layout = QVBoxLayout(delay_frame)
         
         delay_title = QLabel("🕐 생성 지연 설정")
-        delay_title.setStyleSheet(f"{label_style} font-weight: bold; font-size: 14px;")
+        delay_title.setStyleSheet(f"{label_style} font-weight: bold; font-size: {get_scaled_font_size(14)}px;")
         delay_layout.addWidget(delay_title)
         
         delay_grid = QGridLayout()
@@ -235,7 +241,7 @@ class AutomationModule(BaseMiddleModule):
         delay_grid.addWidget(delay_label, 0, 0)
         
         self.delay_input = QLineEdit(str(self.delay_seconds))
-        self.delay_input.setStyleSheet("background-color: #212121; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
+        self.delay_input.setStyleSheet(input_style)
         self.delay_input.textChanged.connect(self.on_delay_text_changed)
         delay_grid.addWidget(self.delay_input, 0, 1)
         
@@ -250,11 +256,11 @@ class AutomationModule(BaseMiddleModule):
         delay_grid.addWidget(repeat_label, 2, 0)
         
         self.repeat_input = QLineEdit(str(self.repeat_count))
-        self.repeat_input.setStyleSheet("background-color: #212121; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
+        self.repeat_input.setStyleSheet(input_style)
         delay_grid.addWidget(self.repeat_input, 2, 1)
         
         repeat_info_label = QLabel("* 자동 생성 상태일때만 작동합니다")
-        repeat_info_label.setStyleSheet(f"{label_style} color: #888888; font-size: 11px; font-style: italic;")
+        repeat_info_label.setStyleSheet(f"{label_style} color: #888888; font-size: {get_scaled_font_size(11)}px; font-style: italic;")
         delay_grid.addWidget(repeat_info_label, 3, 0, 1, 2)
         
         delay_layout.addLayout(delay_grid)
@@ -266,7 +272,7 @@ class AutomationModule(BaseMiddleModule):
         automation_layout = QVBoxLayout(automation_frame)
         
         automation_title = QLabel("⏰ 자동화 종료 조건")
-        automation_title.setStyleSheet(f"{label_style} font-weight: bold; font-size: 14px;")
+        automation_title.setStyleSheet(f"{label_style} font-weight: bold; font-size: {get_scaled_font_size(14)}px;")
         automation_layout.addWidget(automation_title)
         
         # 라디오 버튼 그룹
@@ -301,7 +307,7 @@ class AutomationModule(BaseMiddleModule):
         condition_grid.addWidget(self.timer_label, 0, 0)
         
         self.timer_input = QLineEdit("60")
-        self.timer_input.setStyleSheet("background-color: #212121; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
+        self.timer_input.setStyleSheet(input_style)
         condition_grid.addWidget(self.timer_input, 0, 1)
         
         # 횟수 제한 옵션
@@ -310,7 +316,7 @@ class AutomationModule(BaseMiddleModule):
         condition_grid.addWidget(self.count_label, 1, 0)
         
         self.count_input = QLineEdit("100")
-        self.count_input.setStyleSheet("background-color: #212121; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
+        self.count_input.setStyleSheet(input_style)
         condition_grid.addWidget(self.count_input, 1, 1)
         
         automation_layout.addLayout(condition_grid)
@@ -338,51 +344,51 @@ class AutomationModule(BaseMiddleModule):
         button_layout = QHBoxLayout()
         
         self.start_button = QPushButton("자동화 적용")
-        self.start_button.setStyleSheet("""
-            QPushButton {
+        self.start_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #4CAF50;
                 color: white;
                 border: none;
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(14)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #45a049;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #3d8b40;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #666666;
                 color: #999999;
-            }
+            }}
         """)
         self.start_button.clicked.connect(self.start_automation)
         button_layout.addWidget(self.start_button)
         
         self.stop_button = QPushButton("자동화 중단")
-        self.stop_button.setStyleSheet("""
-            QPushButton {
+        self.stop_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #f44336;
                 color: white;
                 border: none;
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(14)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #da190b;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #be1e0e;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #666666;
                 color: #999999;
-            }
+            }}
         """)
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_automation)
