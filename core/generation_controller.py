@@ -49,6 +49,9 @@ class GenerationWorker(QObject):
                     processed_result['info'] = info_text
                 else:
                     processed_result['info'] = "이미지 객체를 찾을 수 없습니다."
+                
+                # 🆕 확장된 메타데이터 수집
+                self._collect_enhanced_metadata(processed_result)
             
             self.generation_finished.emit(processed_result)
             
@@ -107,6 +110,60 @@ class GenerationWorker(QObject):
             return comment.decode('utf-8', errors='ignore')
 
         return "AI 생성 이미지가 아니거나, 인식할 수 있는 메타데이터가 없습니다."
+    
+    def _collect_enhanced_metadata(self, result: dict):
+        """🆕 확장된 메타데이터를 수집하여 결과에 추가합니다."""
+        import time
+        try:
+            # 생성 파라미터 보존 (민감한 정보 제외)
+            params_copy = self.params.copy()
+            if 'credential' in params_copy:
+                del params_copy['credential']  # 보안을 위해 토큰 제거
+            
+            result['generation_params'] = params_copy
+            
+            # 🆕 main_prompt 수집 (UI에서 직접 가져와 \n\n 포함하여 보존)
+            main_prompt_raw = ""
+            try:
+                if hasattr(self.context, 'main_window') and hasattr(self.context.main_window, 'main_prompt_textedit'):
+                    main_prompt_raw = self.context.main_window.main_prompt_textedit.toPlainText()
+            except Exception as e:
+                print(f"⚠️ main_prompt 수집 실패: {e}")
+            
+            # 프롬프트 컨텍스트 정보
+            result['prompt_context'] = {
+                'original_input': self.params.get('input', ''),
+                'processed_input': self.params.get('input', ''),  # 필요시 파이프라인 처리 후 값으로 교체
+                'negative_prompt': self.params.get('negative_prompt', ''),
+                'main_prompt': main_prompt_raw,  # 🆕 UI에서 가져온 원본 프롬프트 (\n\n 포함)
+                'source_tags': self.source_row.to_dict() if self.source_row is not None else {},
+                'wildcard_resolved': self.source_row is not None
+            }
+            
+            # API 메타데이터
+            result['api_metadata'] = {
+                'backend': self.params.get('api_mode', 'NAI'),
+                'model': self.params.get('model', ''),
+                'sampler': self.params.get('sampler', ''),
+                'response_time': result.get('response_time', 0),
+                'api_version': result.get('api_version', ''),
+                'generation_timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # 생성 시각과 백엔드 타입
+            result['creation_timestamp'] = time.strftime('%Y-%m-%d %H:%M:%S')
+            result['backend_type'] = self.params.get('api_mode', 'NAI')
+            
+            print(f"✅ 확장된 메타데이터 수집 완료: {result['backend_type']}")
+            
+        except Exception as e:
+            print(f"⚠️ 메타데이터 수집 중 오류: {e}")
+            # 기본값으로 설정
+            result.setdefault('generation_params', {})
+            result.setdefault('prompt_context', {})
+            result.setdefault('api_metadata', {})
+            result.setdefault('creation_timestamp', time.strftime('%Y-%m-%d %H:%M:%S'))
+            result.setdefault('backend_type', 'NAI')
 
 class GenerationController:
     def __init__(self, context: 'AppContext', module_instances: list):

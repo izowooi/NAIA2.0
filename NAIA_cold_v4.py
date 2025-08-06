@@ -1600,7 +1600,14 @@ class ModernMainWindow(QMainWindow):
                 print(f"  - info_text type: {type(info_text)}, length: {len(info_text) if info_text else 'None'}")
                 print(f"  - source_row type: {type(source_row)}")
                 
-                self.image_window.add_to_history(image_object, raw_bytes, info_text, source_row)
+                # 🆕 확장된 메타데이터와 함께 히스토리 추가
+                self.image_window.add_to_history(
+                    image_object, 
+                    raw_bytes, 
+                    info_text, 
+                    source_row,
+                    generation_result=result  # 🆕 전체 결과 객체 전달
+                )
             except Exception as e:
                 print(f"❌ 히스토리 추가 실패: {e}")
                 import traceback

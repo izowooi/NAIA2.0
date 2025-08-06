@@ -236,11 +236,11 @@ class RightView(QWidget):
         if instance and hasattr(instance, 'image_window_widget'):
             instance.image_window_widget.update_info(text)
 
-    def add_to_history(self, image, raw_bytes: bytes, info: str, source_row: pd.Series):
-        """히스토리 추가"""
+    def add_to_history(self, image, raw_bytes: bytes, info: str, source_row: pd.Series, generation_result: dict = None):
+        """히스토리 추가 - 🆕 확장된 메타데이터 지원"""
         instance = self._get_image_viewer_instance()
         if instance and hasattr(instance, 'image_window_widget'):
-            instance.image_window_widget.add_to_history(image, raw_bytes, info, source_row)
+            instance.image_window_widget.add_to_history(image, raw_bytes, info, source_row, generation_result)
             
     # # === 동적 탭 생성을 위한 메서드들 ===
     # def add_api_management_tab(self):

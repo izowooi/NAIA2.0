@@ -177,6 +177,10 @@ class APIService:
                                 'centers': [{"x": 0.5, "y": 0.5}]
                             })
             
+            # 🔥 개선된 커스텀 파라미터 처리 (NAI용)
+            if params.get('use_custom_api_params', False):
+                self._apply_custom_nai_params(api_parameters, params)
+            
             # 최종 페이로드 구성
             payload = {
                 "input": params.get('input', ''),
@@ -398,6 +402,42 @@ class APIService:
         corrected = re.sub(r',(\s*[}\]])', r'\1', corrected)
         
         return corrected
+
+    def _apply_custom_nai_params(self, api_parameters: dict, params: dict) -> None:
+        """
+        NovelAI API 전용 커스텀 파라미터를 처리하고 api_parameters에 적용합니다.
+        NAI는 직접 parameters 객체를 수정하는 방식을 사용합니다.
+        """
+        custom_params_text = params.get('custom_api_params', '').strip()
+        if not custom_params_text:
+            return
+
+        try:
+            # 1. 원본 텍스트로 바로 파싱 시도
+            custom_params = json.loads(custom_params_text)
+        except json.JSONDecodeError:
+            # 2. 파싱 실패 시, 지능형 자동 수정 함수 호출
+            print("Warning: JSON parsing failed. Attempting auto-correction...")
+            corrected_text = self._intelligent_json_corrector(custom_params_text)
+            try:
+                # 수정된 텍스트로 다시 파싱
+                custom_params = json.loads(corrected_text)
+            except json.JSONDecodeError as e:
+                # 최종 실패
+                print(f"Error: Custom NAI parameters could not be applied. Error persisted after auto-correction.")
+                print(f"   Error details: {e}")
+                print(f"   Attempted correction: {corrected_text[:200]}...")
+                return
+
+        # 성공적으로 파싱된 경우 api_parameters에 업데이트
+        if isinstance(custom_params, dict):
+            # NAI API parameters에 직접 병합
+            api_parameters.update(custom_params)
+            print(f"Custom NAI parameters applied: {len(custom_params)} parameters")
+            
+            # 적용된 파라미터들을 로그에 출력 (디버깅용)
+            for key, value in custom_params.items():
+                print(f"   - {key}: {value}")
 
     def _process_nai_response(self, content: bytes) -> Dict[str, Any] | None:
         """NAI API의 응답(zip)을 처리하여 PIL Image와 원본 바이트를 반환합니다."""
