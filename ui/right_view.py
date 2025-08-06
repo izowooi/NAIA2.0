@@ -10,6 +10,7 @@ import pandas as pd
 from ui.theme import DARK_STYLES, DARK_COLORS
 from ui.detached_window import DetachedWindow
 from core.tab_controller import TabController
+from ui.scaling_manager import get_scaled_font_size
 
 class EnhancedTabWidget(QTabWidget):
     """우클릭 컨텍스트 메뉴가 있는 향상된 탭 위젯"""
@@ -187,11 +188,11 @@ class RightView(QWidget):
         
         icon_label = QLabel("🔗")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet(f"font-size: 48px; color: {DARK_COLORS['text_secondary']};")
+        icon_label.setStyleSheet(f"font-size: {get_scaled_font_size(48)}px; color: {DARK_COLORS['text_secondary']};")
         
         message_label = QLabel(f"'{tab_title}'이(가)\n외부 창에서 열려있습니다")
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        message_label.setStyleSheet(f"font-size: 16px; color: {DARK_COLORS['text_secondary']};")
+        message_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: {DARK_COLORS['text_secondary']};")
         
         return_button = QPushButton("창 닫고 여기로 복귀")
         return_button.setStyleSheet(DARK_STYLES['secondary_button'])

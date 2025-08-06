@@ -1,6 +1,7 @@
 # ui/collapsible.py (수정된 버전)
 
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QToolButton, QMenu, QFrame, QLabel
 )
@@ -215,7 +216,7 @@ class EnhancedCollapsibleBox(QWidget):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_label.setStyleSheet(f"""
             QLabel {{
-                font-size: 24px;
+                font-size: {get_scaled_font_size(24)}px;
                 color: {DARK_COLORS['text_secondary']};
             }}
         """)
@@ -225,7 +226,7 @@ class EnhancedCollapsibleBox(QWidget):
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message_label.setStyleSheet(f"""
             QLabel {{
-                font-size: 12px;
+                font-size: {get_scaled_font_size(12)}px;
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
             }}

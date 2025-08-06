@@ -9,6 +9,7 @@ import numpy as np
 from .theme import DARK_STYLES, DARK_COLORS
 from .inpaint_window import InpaintWindow
 from core.context import AppContext
+from ui.scaling_manager import get_scaled_font_size
 
 class Img2ImgPanel(QFrame):
     """
@@ -45,10 +46,10 @@ class Img2ImgPanel(QFrame):
         # 상단: 타이틀 + 닫기 버튼
         header_layout = QHBoxLayout()
         title_label = QLabel("Image2Image (NAI Only)")
-        title_label.setStyleSheet("font-size: 24px; font-weight: 600; color: white; background-color: transparent;")
+        title_label.setStyleSheet(f"font-size: {get_scaled_font_size(24)}px; font-weight: 600; color: white; background-color: transparent;")
 
         subtitle_label = QLabel("Transform your image.")
-        subtitle_label.setStyleSheet("font-size: 14px; color: #CCCCCC; background-color: transparent;")
+        subtitle_label.setStyleSheet(f"font-size: {get_scaled_font_size(14)}px; color: #CCCCCC; background-color: transparent;")
 
         title_vbox = QVBoxLayout()
         title_vbox.addWidget(title_label)
@@ -96,9 +97,9 @@ class Img2ImgPanel(QFrame):
         strength_hlayout = QHBoxLayout(strength_group)
         strength_hlayout.setContentsMargins(0, 0, 0, 0)
         strength_label = QLabel("Strength:")
-        strength_label.setStyleSheet("font-size: 16px; color: white; background-color: transparent;")
+        strength_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: white; background-color: transparent;")
         self.strength_value_label = QLabel("0.50")
-        self.strength_value_label.setStyleSheet("font-size: 16px; color: #AAA; min-width: 40px; text-align: right; background-color: transparent;")
+        self.strength_value_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: #AAA; min-width: 40px; text-align: right; background-color: transparent;")
         self.strength_slider = QSlider(Qt.Orientation.Horizontal)
         self.strength_slider.setRange(1, 99)
         self.strength_slider.setValue(50)
@@ -114,9 +115,9 @@ class Img2ImgPanel(QFrame):
         noise_hlayout = QHBoxLayout(noise_group)
         noise_hlayout.setContentsMargins(0, 0, 0, 0)
         noise_label = QLabel("Noise:")
-        noise_label.setStyleSheet("font-size: 16px; color: white; background-color: transparent;")
+        noise_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: white; background-color: transparent;")
         self.noise_value_label = QLabel("0.05")
-        self.noise_value_label.setStyleSheet("font-size: 16px; color: #AAA; min-width: 40px; text-align: right; background-color: transparent;")
+        self.noise_value_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: #AAA; min-width: 40px; text-align: right; background-color: transparent;")
         self.noise_slider = QSlider(Qt.Orientation.Horizontal)
         self.noise_slider.setRange(0, 99)
         self.noise_slider.setValue(5)
