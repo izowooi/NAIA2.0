@@ -323,6 +323,10 @@ class ModernMainWindow(QMainWindow):
 
         self.img2img_panel = Img2ImgPanel(self)
 
+        # MainController 초기화 (UI 초기화 전에 생성)
+        self.controller = MainController(self)
+        self.scaling_manager.scaling_changed.connect(self.controller.on_scaling_changed)
+
         self.init_ui()
         
         # MiddleSectionController가 모듈 인스턴스들을 가지고 있음
@@ -335,9 +339,7 @@ class ModernMainWindow(QMainWindow):
 
         self.prompt_gen_controller = PromptGenerationController(self.app_context)
         
-        # MainController 초기화 및 신호 연결
-        self.controller = MainController(self)
-        self.scaling_manager.scaling_changed.connect(self.controller.on_scaling_changed)
+        # 신호 연결 (UI 초기화 후)
         self.controller.connect_signals()
         # 🆕 메인 생성 파라미터 모드 관리자 추가
         self.generation_params_manager = GenerationParamsManager(self)
