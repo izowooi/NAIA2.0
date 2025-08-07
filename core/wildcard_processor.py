@@ -113,15 +113,23 @@ class WildcardProcessor:
             context.wildcard_state[wildcard_name] = {'current': counter % total_lines + 1, 'total': total_lines}
 
         elif is_observer:
+            # 🔧 [수정] Master/Slave 의존성 로직 개선
             master_counter = context.sequential_counters.get(master_name, 0)
-            # master가 한 번도 호출되지 않았다면, slave도 첫 번째를 반환
-            # master 카운터는 이미 다음 호출을 위해 1 증가된 상태일 수 있으므로 -1
-            current_master_index = (master_counter - 1) if master_counter > 0 else 0
             
-            slave_index = current_master_index % total_lines
+            # Master 와일드카드의 길이를 가져와서 사이클 계산
+            master_lines = self.wildcard_manager.wildcard_dict_tree.get(master_name, [])
+            master_total = len(master_lines) if master_lines else 1
+            
+            # Master가 완전한 사이클을 몇 번 완료했는지 계산
+            # master_counter는 이미 1 증가된 상태이므로 -1 후 계산
+            completed_master_cycles = (master_counter - 1) // master_total if master_counter > 0 else 0
+            
+            # Slave는 master의 완전한 사이클 완료 횟수에 따라 진행
+            slave_index = completed_master_cycles % total_lines
             chosen_line = lines[slave_index]
+            
             # [상태 관찰] 종속 와일드카드 상태 기록
-            context.wildcard_state[wildcard_name] = {'current': slave_index + 1, 'total': total_lines}
+            context.wildcard_state[wildcard_name] = {'current': slave_index + 1, 'total': total_lines, 'master_cycles': completed_master_cycles}
             
         else: # 일반 무작위 모드
             chosen_line = random.choice(lines)

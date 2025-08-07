@@ -179,6 +179,13 @@ class MainController:
         mw.prompt_gen_controller.resolution_detected.connect(self.on_resolution_detected)
         mw.image_window.load_prompt_to_main_ui.connect(mw.set_positive_prompt)
         mw.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
+        
+        # 검색 컨트롤러 시그널 연결
+        mw.search_controller.search_progress.connect(self.update_search_progress)
+        mw.search_controller.partial_search_result.connect(self.on_partial_search_result)
+        mw.search_controller.search_complete.connect(self.on_search_complete)
+        mw.search_controller.search_error.connect(self.on_search_error)
+        
         self.connect_checkbox_signals()
         mw.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
         mw.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
@@ -192,36 +199,117 @@ class MainController:
             mw.image_window.send_to_inpaint_requested.connect(self.on_send_to_inpaint_requested)
         
     def connect_automation_signals(self):
-        """자동화 관련 신호 연결"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """자동화 모듈과의 시그널 연결"""
+        # 자동화 모듈 찾기
+        if self.main_window.middle_section_controller:
+            for module in self.main_window.middle_section_controller.module_instances:
+                if hasattr(module, 'automation_controller'):
+                    self.main_window.automation_module = module
+                    break
+        
+        if hasattr(self.main_window, 'automation_module') and self.main_window.automation_module:
+            try:
+                # 콜백 함수 등록 (시그널 대신)
+                self.main_window.automation_module.set_automation_status_callback(
+                    self.main_window.update_automation_status
+                )
+                
+                self.main_window.automation_module.set_generation_delay_callback(
+                    self.main_window.on_generation_delay_changed
+                )
+                
+                # [신규] 자동 생성 상태 확인 콜백 등록
+                self.main_window.automation_module.set_auto_generate_status_callback(
+                    self.get_auto_generate_status
+                )
+
+                # [신규] 자동화 활성 상태 확인 콜백 등록 (누락된 부분)
+                self.main_window.automation_module.set_automation_active_status_callback(
+                    self.main_window.get_automation_active_status
+                )
+                
+                print("✅ 자동화 모듈 콜백 연결 완료")
+            except Exception as e:
+                print(f"⚠️ 자동화 모듈 콜백 연결 실패: {e}")
+        else:
+            print("⚠️ 자동화 모듈을 찾을 수 없습니다.")
         
     def connect_checkbox_signals(self):
-        """체크박스 신호 연결"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """체크박스 시그널을 연결하는 메서드 (init에서 호출)"""
+        try:
+            prompt_fixed_checkbox = self.main_window.generation_checkboxes.get("프롬프트 고정")
+            if prompt_fixed_checkbox:
+                prompt_fixed_checkbox.toggled.connect(self.update_random_prompt_button_state)
+                
+            # 초기 상태 설정
+            self.update_random_prompt_button_state()
+            
+        except Exception as e:
+            print(f"❌ 체크박스 시그널 연결 오류: {e}")
+    
+    # === Helper Methods ===
+    
+    def get_auto_generate_status(self) -> bool:
+        """현재 자동 생성 체크박스 상태를 반환"""
+        try:
+            auto_generate_checkbox = self.main_window.generation_checkboxes.get("자동 생성")
+            if auto_generate_checkbox:
+                return auto_generate_checkbox.isChecked()
+            return False
+        except Exception as e:
+            print(f"⚠️ 자동 생성 상태 확인 실패: {e}")
+            return False
+
+    def update_random_prompt_button_state(self):
+        """generation_checkboxes 상태에 따라 random_prompt_btn을 활성화/비활성화"""
+        try:
+            # "프롬프트 고정" 체크박스가 체크되어 있으면 버튼 비활성화
+            prompt_fixed_checkbox = self.main_window.generation_checkboxes.get("프롬프트 고정")
+            
+            if prompt_fixed_checkbox and prompt_fixed_checkbox.isChecked():
+                self.main_window.random_prompt_btn.setEnabled(False)
+                self.main_window.random_prompt_btn.setText("프롬프트 고정됨")
+            else:
+                self.main_window.random_prompt_btn.setEnabled(True)
+                self.main_window.random_prompt_btn.setText("랜덤/다음 프롬프트")
+                
+        except Exception as e:
+            print(f"❌ 버튼 상태 업데이트 오류: {e}")
     
     # === 검색 관련 이벤트 핸들러 ===
     
     def update_search_progress(self, completed: int, total: int):
-        """검색 진행률 업데이트"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """검색 진행률에 따라 UI 업데이트"""
+        percentage = int((completed / total) * 100) if total > 0 else 0
+        self.main_window.progress_label.setText(f"{completed}/{total}")
+        self.main_window.search_btn.setText(f"검색 중 ({percentage}%)")
         
     def on_partial_search_result(self, partial_df: pd.DataFrame):
-        """부분 검색 결과 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """부분 검색 결과를 받아 UI에 즉시 반영"""
+        self.main_window.search_results.append_dataframe(partial_df)
+        self.main_window.result_label1.setText(f"검색: {self.main_window.search_results.get_count()}")
+        self.main_window.result_label2.setText(f"남음: {self.main_window.search_results.get_count()}")
         
     def on_search_complete(self, total_count: int):
-        """검색 완료 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """검색 완료 시 호출되는 슬롯, 결과 파일 저장"""
+        self.main_window.search_btn.setEnabled(True)
+        self.main_window.search_btn.setText("검색")
+        self.main_window.progress_label.setVisible(False)
+        self.main_window.status_bar.showMessage(f"✅ 검색 완료! {total_count}개의 결과를 찾았습니다.", 5000)
+
+        # [신규] 검색 결과 Parquet 파일로 저장
+        if not self.main_window.search_results.is_empty():
+            try:
+                self.main_window.search_results.get_dataframe().to_parquet('naia_temp_rows.parquet')
+            except Exception as e:
+                self.main_window.status_bar.showMessage(f"⚠️ 결과 파일 저장 실패: {e}", 5000)
         
     def on_search_error(self, error_message: str):
-        """검색 오류 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """검색 오류 발생 시 호출되는 슬롯"""
+        self.main_window.search_btn.setEnabled(True)
+        self.main_window.search_btn.setText("검색")
+        self.main_window.progress_label.setVisible(False)
+        self.main_window.status_bar.showMessage(f"❌ 검색 오류: {error_message}", 5000)
         
     # === 생성 관련 이벤트 핸들러 ===
     
@@ -245,30 +333,169 @@ class MainController:
     
     def load_generation_parameters(self):
         """생성 파라미터 로드"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        # 기존 방식 대신 모드별 로드
+        current_mode = self.main_window.app_context.get_api_mode()
+        self.main_window.generation_params_manager.load_mode_settings(current_mode)
         
     def save_generation_parameters(self):
         """생성 파라미터 저장"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        # 기존 방식 대신 모드별 저장
+        current_mode = self.main_window.app_context.get_api_mode()
+        self.main_window.generation_params_manager.save_mode_settings(current_mode)
         
     def save_all_current_settings(self):
         """모든 현재 설정 저장"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        try:
+            current_mode = self.main_window.app_context.get_api_mode()
+            
+            # 버튼 상태 변경 (저장 중 표시)
+            self.main_window.save_settings_btn.setText("💾 저장 중...")
+            self.main_window.save_settings_btn.setEnabled(False)
+            
+            saved_items = []
+            failed_items = []
+            
+            # 1. 메인 생성 파라미터 저장
+            try:
+                self.main_window.generation_params_manager.save_mode_settings(current_mode)
+                saved_items.append("메인 생성 파라미터")
+            except Exception as e:
+                failed_items.append(f"메인 생성 파라미터: {str(e)}")
+            
+            # 2. 모든 ModeAware 모듈 설정 저장
+            if self.main_window.app_context and self.main_window.app_context.mode_manager:
+                try:
+                    self.main_window.app_context.mode_manager.save_all_current_mode()
+                    
+                    # 저장된 모듈 수 계산
+                    mode_aware_count = len(self.main_window.app_context.mode_manager.registered_modules)
+                    if mode_aware_count > 0:
+                        saved_items.append(f"모드 인식 모듈 ({mode_aware_count}개)")
+                    
+                except Exception as e:
+                    failed_items.append(f"모드 인식 모듈: {str(e)}")
+               
+            # 결과 메시지 생성
+            if saved_items and not failed_items:
+                # 모든 저장 성공
+                message = f"✅ 설정 저장 완료 ({current_mode} 모드)\n저장된 항목: {', '.join(saved_items)}"
+                self.main_window.status_bar.showMessage(f"✅ 모든 설정이 저장되었습니다 ({current_mode} 모드)", 4000)
+                
+            elif saved_items and failed_items:
+                # 일부 저장 성공, 일부 실패
+                message = f"⚠️ 설정 부분 저장 완료 ({current_mode} 모드)\n✅ 저장됨: {', '.join(saved_items)}\n❌ 실패: {', '.join(failed_items)}"
+                self.main_window.status_bar.showMessage(f"⚠️ 일부 설정 저장 실패", 4000)
+                
+            else:
+                # 모든 저장 실패
+                message = f"❌ 설정 저장 실패 ({current_mode} 모드)\n실패 항목: {', '.join(failed_items)}"
+                self.main_window.status_bar.showMessage("❌ 설정 저장 실패", 4000)
+            
+            print(message)
+            
+            # 성공한 항목이 있으면 토스트 메시지도 표시
+            if saved_items:
+                # QMessageBox로 간단한 알림 표시 (자동으로 사라지지 않음, 사용자가 확인 필요)
+                msg = QMessageBox(self.main_window)
+                msg.setIcon(QMessageBox.Icon.Information)
+                msg.setWindowTitle("설정 저장 완료")
+                msg.setText(f"현재 모드({current_mode})의 설정이 저장되었습니다.")
+                
+                details = f"저장된 항목:\n• " + "\n• ".join(saved_items)
+                if failed_items:
+                    details += f"\n\n실패한 항목:\n• " + "\n• ".join(failed_items)
+                msg.setDetailedText(details)
+                
+                # 자동으로 닫히도록 타이머 설정 (3초 후 자동 닫기)
+                timer = QTimer()
+                timer.timeout.connect(msg.accept)
+                timer.setSingleShot(True)
+                timer.start(3000)  # 3초 후 자동 닫기
+                
+                msg.exec()
+            
+        except Exception as e:
+            error_message = f"❌ 설정 저장 중 예외 발생: {str(e)}"
+            print(error_message)
+            self.main_window.status_bar.showMessage("❌ 설정 저장 중 오류 발생", 4000)
+            
+        finally:
+            # 버튼 상태 복원
+            self.main_window.save_settings_btn.setText("💾 설정 저장")
+            self.main_window.save_settings_btn.setEnabled(True)
     
     # === API 테스트 메서드 ===
     
     def test_webui(self, url):
-        """WebUI API 테스트"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """WebUI 연결 테스트 함수"""
+        import requests
+        # ignore http or https, check both.
+        url = url.replace('http://', '').replace('https://', '').rstrip('/')
+        # just checking connection, so any api is okay.
+        try:
+            if "127.0" not in url: res = requests.get(f"https://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
+            else: res = requests.get(f"http://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
+            if res.status_code == 200 and 'progress' in res.json():
+                return f'https://{url}'
+            else:
+                raise Exception('invalid status')
+        except Exception:
+            try:
+                res = requests.get(f"http://{url}/sdapi/v1/progress?skip_current_image=true", timeout=1)
+                if res.status_code == 200 and 'progress' in res.json():
+                    return f'http://{url}'
+                else:
+                    raise Exception('invalid status')
+            except Exception:
+                pass
+        return None
         
     def test_comfyui(self, url):
-        """ComfyUI API 테스트"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        """ComfyUI 연결 테스트 함수 (test_webui와 유사한 패턴)"""
+        import requests
+        import json
+        
+        # URL 정규화 및 프로토콜 테스트
+        test_urls = []
+        clean_url = url.replace('https://', '').replace('http://', '')
+        
+        # 포트가 없으면 기본 ComfyUI 포트(8188) 추가
+        if ':' not in clean_url:
+            clean_url = f"{clean_url}:8188"
+        
+        # HTTP와 HTTPS 모두 테스트
+        test_urls.append(f"http://{clean_url}")
+        test_urls.append(f"https://{clean_url}")
+        
+        for test_url in test_urls:
+            try:
+                print(f"🔍 ComfyUI 연결 테스트: {test_url}")
+                
+                # /system_stats 엔드포인트로 연결 테스트
+                response = requests.get(f"{test_url}/system_stats", timeout=8)
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        # ComfyUI 응답 구조 확인
+                        if 'system' in data or 'devices' in data:
+                            print(f"✅ ComfyUI 연결 성공: {test_url}")
+                            return test_url
+                    except json.JSONDecodeError:
+                        continue
+                
+            except requests.exceptions.ConnectTimeout:
+                print(f"⏰ ComfyUI 연결 시간 초과: {test_url}")
+                continue
+            except requests.exceptions.ConnectionError:
+                print(f"❌ ComfyUI 연결 실패: {test_url}")
+                continue
+            except Exception as e:
+                print(f"❌ ComfyUI 테스트 중 예외: {test_url} - {e}")
+                continue
+        
+        print(f"❌ 모든 ComfyUI 연결 시도 실패: {url}")
+        return None
     
     # === 기타 이벤트 핸들러 메서드 ===
     

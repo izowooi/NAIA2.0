@@ -313,10 +313,7 @@ class ModernMainWindow(QMainWindow):
         #  검색 결과를 저장할 변수 및 컨트롤러 초기화
         self.search_results = SearchResultModel()
         self.search_controller = SearchController()
-        self.search_controller.search_progress.connect(self.update_search_progress)
-        self.search_controller.partial_search_result.connect(self.on_partial_search_result) # 이 줄 추가
-        self.search_controller.search_complete.connect(self.on_search_complete)
-        self.search_controller.search_error.connect(self.on_search_error)
+        # 검색 컨트롤러 시그널 연결은 MainController에서 처리됩니다
 
         self.image_window = None 
         # [신규] 데이터 및 와일드카드 관리자 초기화
@@ -471,7 +468,7 @@ class ModernMainWindow(QMainWindow):
             self.middle_section_controller.build_ui(middle_layout)
 
             # [신규] 모듈 로드 완료 후 자동화 시그널 연결
-            self.connect_automation_signals()
+            self.controller.connect_automation_signals()
 
             # 상태 메시지 업데이트
             loaded_count = len(self.middle_section_controller.module_instances)

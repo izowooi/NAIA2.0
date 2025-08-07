@@ -20,7 +20,21 @@ class PromptGenerationController(QObject):
 
     def _create_initial_context(self, source_row: pd.Series, settings: dict) -> PromptContext:
         """[신규] PromptContext를 생성하고 초기 태그를 설정하는 헬퍼 메소드"""
+        
+        # 🔧 [수정] 기존 컨텍스트의 순차 카운터 보존
+        existing_sequential_counters = {}
+        existing_wildcard_state = {}
+        if (hasattr(self.app_context, 'current_prompt_context') and 
+            self.app_context.current_prompt_context):
+            existing_sequential_counters = self.app_context.current_prompt_context.sequential_counters.copy()
+            existing_wildcard_state = self.app_context.current_prompt_context.wildcard_state.copy()
+        
         context = PromptContext(source_row=source_row, settings=settings)
+        
+        # 기존 순차 카운터와 상태 복원
+        context.sequential_counters = existing_sequential_counters
+        context.wildcard_state = existing_wildcard_state
+        
         general_str = source_row.get('general', '')
         if pd.notna(general_str) and isinstance(general_str, str):
             context.main_tags = [tag.strip() for tag in general_str.split(',')]
