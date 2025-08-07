@@ -1170,18 +1170,18 @@ class ModernMainWindow(QMainWindow):
         gen_control_layout.setContentsMargins(12, 12, 12, 12)
         gen_control_layout.setSpacing(8)
         
-        gen_button_layout = QHBoxLayout()
-        gen_button_layout.setSpacing(6)
+        self.gen_button_layout = QHBoxLayout()
+        self.gen_button_layout.setSpacing(6)
         
         self.random_prompt_btn = QPushButton("랜덤/다음 프롬프트")
         self.random_prompt_btn.setStyleSheet(DARK_STYLES['secondary_button'])
-        gen_button_layout.addWidget(self.random_prompt_btn)
+        self.gen_button_layout.addWidget(self.random_prompt_btn)
         
         self.generate_button_main = QPushButton("🎨 이미지 생성 요청")
         self.generate_button_main.setStyleSheet(DARK_STYLES['primary_button'])
-        gen_button_layout.addWidget(self.generate_button_main)
+        self.gen_button_layout.addWidget(self.generate_button_main)
         
-        gen_control_layout.addLayout(gen_button_layout)
+        gen_control_layout.addLayout(self.gen_button_layout)
         gen_control_layout.addSpacing(12)
         
         # 🔥 수정: 체크박스 레이아웃을 화면 너비에 맞춰 조정
@@ -2562,30 +2562,62 @@ class ModernMainWindow(QMainWindow):
         self.activate_inpaint_mode(pil_image)
     
     def update_splitter_stretch_factors(self):
-        """search_result_frame의 너비에 따라 splitter의 stretch factor를 동적으로 조정"""
-        if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
-            # search_result_frame의 실제 너비 측정
-            frame_width = self.search_result_frame.sizeHint().width()
+        """좌측 패널의 실제 필요 공간에 따라 splitter의 stretch factor를 동적으로 조정"""
+        if not (hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter')):
+            return
             
-            # 최소 필요 너비 (버튼들과 여백 고려)
-            min_required_width = get_scaled_size(800)  # 기본 최소 너비
+        # 현재 윈도우 크기
+        window_width = self.width()
+        if window_width <= 0:
+            return
             
-            # 현재 윈도우 너비
-            window_width = self.width()
-            
-            # 좌측 패널의 최소 stretch factor 계산
-            # search_result_frame이 클수록 좌측 패널에 더 많은 공간 할당
-            if frame_width > min_required_width:
-                left_stretch = max(45, int(45 + (frame_width - min_required_width) / 20))
-            else:
-                left_stretch = 45
+        # 좌측 패널의 핵심 컴포넌트들의 최소 필요 너비 계산
+        search_frame_width = 0
+        gen_button_width = 0
+        
+        try:
+            # search_result_frame의 실제 필요 너비
+            if hasattr(self, 'search_result_frame'):
+                # 버튼들과 라벨들의 실제 크기 합산
+                search_frame_width = (
+                    self.search_result_frame.sizeHint().width() + 
+                    get_scaled_size(40)  # 여백 고려
+                )
                 
-            # 우측 패널 stretch factor는 보완적으로 계산
-            right_stretch = max(35, 100 - left_stretch)
+            # gen_button_layout의 실제 필요 너비  
+            if hasattr(self, 'gen_button_layout'):
+                gen_button_width = (
+                    self.random_prompt_btn.sizeHint().width() +
+                    self.generate_button_main.sizeHint().width() +
+                    get_scaled_size(30)  # spacing과 여백
+                )
+        except:
+            # 계산 실패 시 안전한 기본값 사용
+            search_frame_width = get_scaled_size(500)
+            gen_button_width = get_scaled_size(400)
+        
+        # 좌측 패널이 실제로 필요한 최소 너비
+        left_min_required = max(search_frame_width, gen_button_width, get_scaled_size(550))
+        
+        # FHD 해상도 기준 적응적 비율 계산
+        if window_width <= get_scaled_size(1920):  # FHD 이하
+            # FHD에서는 좌측 패널 비율을 줄여서 우측 패널(이미지 뷰어)에 더 많은 공간 할당
+            left_ratio = max(0.30, min(0.40, left_min_required / window_width))
+        else:  # QHD 이상
+            # 고해상도에서는 기존 비율 유지
+            left_ratio = max(0.40, min(0.50, left_min_required / window_width))
             
-            # stretch factor 업데이트
-            self.main_splitter.setStretchFactor(0, left_stretch)
-            self.main_splitter.setStretchFactor(1, right_stretch)
+        # stretch factor 계산 (100 기준)
+        left_stretch = int(left_ratio * 100)
+        right_stretch = 100 - left_stretch
+        
+        # 최소/최대 제한
+        left_stretch = max(25, min(45, left_stretch))  # FHD 대응으로 좌측 비율 감소
+        right_stretch = 100 - left_stretch
+        
+        # stretch factor 업데이트
+        self.main_splitter.setStretchFactor(0, left_stretch)
+        self.main_splitter.setStretchFactor(1, right_stretch)
     
     def resizeEvent(self, event):
         """윈도우 크기 변경 시 splitter stretch factor 업데이트"""
