@@ -386,7 +386,6 @@ class ModernMainWindow(QMainWindow):
                 }}
             """
             self.setStyleSheet(main_style)
-            print(f"동적 UI 스케일링 적용됨 (스케일: {self.scaling_manager.get_scale_factor():.2f}x)")
         except Exception as e:
             print(f"동적 스타일 적용 실패: {e}")
             # 폴백: 기존 정적 스타일 사용
@@ -2639,18 +2638,11 @@ class ModernMainWindow(QMainWindow):
         # 좌측 패널의 최소 너비를 동적으로 업데이트 (search_result_frame이 가려지지 않도록)
         left_widget = self.main_splitter.widget(0)
         if left_widget and left_widget.minimumWidth() < left_min_required:
-            old_min_width = left_widget.minimumWidth()
             left_widget.setMinimumWidth(left_min_required)
-            print(f"🔧 좌측 패널 최소 너비 업데이트: {old_min_width}px → {left_min_required}px")
             
         # stretch factor 업데이트
         self.main_splitter.setStretchFactor(0, left_stretch)
         self.main_splitter.setStretchFactor(1, right_stretch)
-        
-        # 디버그 로그
-        print(f"📊 Splitter 비율 업데이트: 좌측={left_stretch}%, 우측={right_stretch}%, "
-              f"윈도우={window_width}px, search_frame={search_frame_width}px, "
-              f"gen_button={gen_button_width}px, 최소필요={left_min_required}px")
     
     def resizeEvent(self, event):
         """윈도우 크기 변경 시 splitter stretch factor 업데이트"""

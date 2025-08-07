@@ -31,7 +31,6 @@ class MainController:
     
     def on_scaling_changed(self, new_scale):
         """스케일링 변경 시 호출"""
-        print(f"UI 스케일링이 {new_scale:.2f}x로 변경되었습니다.")
         self.main_window.apply_dynamic_styles()
         # 메뉴바에 UI 설정 추가할 것이라면 여기서 업데이트
         self.refresh_all_ui_elements()
@@ -155,18 +154,6 @@ class MainController:
             if hasattr(self.main_window, 'result_label2'):
                 scaled_size = get_scaled_font_size(18)
                 self.main_window.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {scaled_size}px;")
-                
-            print(f"🔄 동적 스케일링 적용 완료:")
-            print(f"   - 버튼: {len(buttons_to_update)}개")
-            print(f"   - 라벨: {len(labels_to_update)}개") 
-            print(f"   - 입력창: {len(lineedits_to_update)}개")
-            print(f"   - 텍스트박스: {len(textedits_to_update)}개")
-            print(f"   - 체크박스: {len(checkboxes_to_update)}개")
-            print(f"   - CollapsibleBox: {len(collapsible_widgets)}개")
-            print(f"   - Tab: {len(tab_widgets)}개")
-            print(f"   - 콤보박스: {len(comboboxes_to_update)}개")
-            print(f"   - 스핀박스: {len(spinboxes_to_update)}개")
-            print(f"   - 슬라이더: {len(sliders_to_update)}개")
                 
         except Exception as e:
             print(f"UI 요소 새로고침 중 오류: {e}")
