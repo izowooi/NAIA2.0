@@ -143,9 +143,9 @@ class ScalingSettingsDialog(QDialog):
         # 수동 스케일링 컨트롤
         manual_layout = QHBoxLayout()
         
-        manual_label = QLabel("수동 스케일:")
-        manual_label.setStyleSheet(f"color: {DARK_COLORS['text_primary']}; font-size: {get_scaled_font_size(14)}px;")
-        manual_layout.addWidget(manual_label)
+        self.manual_label = QLabel("수동 스케일:")
+        self.manual_label.setStyleSheet(f"color: {DARK_COLORS['text_primary']}; font-size: {get_scaled_font_size(14)}px;")
+        manual_layout.addWidget(self.manual_label)
         
         # 스케일 슬라이더
         self.scale_slider = QSlider(Qt.Orientation.Horizontal)
@@ -343,16 +343,54 @@ class ScalingSettingsDialog(QDialog):
         self.current_scale_label.setText(f"현재 스케일: {current_scale:.2f}x ({current_scale*100:.0f}%)")
         
         # 설정 값 로드
-        self.auto_scaling_cb.setChecked(self.scaling_manager.is_auto_scaling_enabled())
+        auto_enabled = self.scaling_manager.is_auto_scaling_enabled()
+        self.auto_scaling_cb.setChecked(auto_enabled)
+        
         user_scale = self.scaling_manager.get_user_scale_factor()
         self.scale_slider.setValue(int(user_scale * 100))
         self.update_scale_label()
         self.update_preview()
+        
+        # 자동 스케일링 상태에 따라 수동 컨트롤 활성화/비활성화
+        enabled = not auto_enabled
+        self.scale_slider.setEnabled(enabled)
+        self.preset_combo.setEnabled(enabled)
+        
+        # 수동 스케일 라벨들의 스타일 업데이트
+        color = DARK_COLORS['text_primary'] if enabled else DARK_COLORS['text_disabled']
+        self.manual_label.setStyleSheet(f"color: {color}; font-size: {get_scaled_font_size(14)}px;")
+        self.scale_value_label.setStyleSheet(f"""
+            color: {color};
+            font-size: {get_scaled_font_size(14)}px;
+            font-weight: bold;
+            min-width: 50px;
+        """)
+        
+        # 자동 스케일링이 켜져 있으면 프리셋을 "자동 감지"로 설정
+        if auto_enabled:
+            self.preset_combo.setCurrentIndex(0)
     
     def on_auto_scaling_toggled(self, checked):
         """자동 스케일링 토글"""
-        self.scale_slider.setEnabled(not checked)
-        self.preset_combo.setEnabled(not checked)
+        enabled = not checked
+        
+        # 수동 컨트롤들 활성화/비활성화
+        self.scale_slider.setEnabled(enabled)
+        self.preset_combo.setEnabled(enabled)
+        
+        # 수동 스케일 라벨 스타일 업데이트
+        color = DARK_COLORS['text_primary'] if enabled else DARK_COLORS['text_disabled']
+        self.manual_label.setStyleSheet(f"color: {color}; font-size: {get_scaled_font_size(14)}px;")
+        
+        # 스케일 값 라벨 스타일 업데이트  
+        color = DARK_COLORS['text_primary'] if enabled else DARK_COLORS['text_disabled']
+        self.scale_value_label.setStyleSheet(f"""
+            color: {color};
+            font-size: {get_scaled_font_size(14)}px;
+            font-weight: bold;
+            min-width: 50px;
+        """)
+        
         if checked:
             self.preset_combo.setCurrentIndex(0)
     
