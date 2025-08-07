@@ -422,13 +422,22 @@ class ModernMainWindow(QMainWindow):
         left_panel = self.create_left_panel()
         self.image_window = self.create_right_panel()
 
-        # 최소 너비 설정 (완전히 숨기기 전 최소 크기)
-        left_panel.setMinimumWidth(get_scaled_size(600))   # 좌측 패널 최소 너비 (FHD 대응)
-        self.image_window.setMinimumWidth(get_scaled_size(350))  # 우측 패널 최소 너비 (FHD 대응)
+        # 해상도별 최소 너비 설정
+        window_width = self.width() if self.width() > 0 else get_scaled_size(1920)
+        if window_width <= get_scaled_size(1920):  # FHD 이하
+            # FHD에서는 좌측 패널 최소 너비를 줄여서 더 유연하게 조정
+            left_min_width = get_scaled_size(450)  # 600 -> 450으로 감소
+            left_min_size = get_scaled_size(450)
+        else:  # QHD 이상
+            left_min_width = get_scaled_size(600)   # 기존 유지
+            left_min_size = get_scaled_size(600)
+            
+        left_panel.setMinimumWidth(left_min_width)
+        self.image_window.setMinimumWidth(get_scaled_size(350))  # 우측 패널 최소 너비 유지
         
         # 선호 크기 설정 (초기 크기)
-        left_panel.setMinimumSize(get_scaled_size(600), get_scaled_size(350))   # 초기 크기 힌트 (FHD 대응)
-        self.image_window.setMinimumSize(get_scaled_size(650), get_scaled_size(350))  # FHD 대응
+        left_panel.setMinimumSize(left_min_size, get_scaled_size(350))
+        self.image_window.setMinimumSize(get_scaled_size(650), get_scaled_size(350))
 
         self.main_splitter.addWidget(left_panel)
         self.main_splitter.addWidget(self.image_window)
