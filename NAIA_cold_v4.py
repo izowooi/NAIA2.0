@@ -33,6 +33,7 @@ from core.prompt_generation_controller import PromptGenerationController
 from utils.load_generation_params import GenerationParamsManager
 from ui.img2img_popup import Img2ImgPopup
 from ui.img2img_panel import Img2ImgPanel
+from core.main_controller import MainController
 
 cfg_validator = QDoubleValidator(1.0, 10.0, 1)
 step_validator = QIntValidator(1, 50)
@@ -290,7 +291,6 @@ class ModernMainWindow(QMainWindow):
         
         # 스케일링 매니저 초기화 (UI 생성 전에 먼저 초기화)
         self.scaling_manager = get_scaling_manager()
-        self.scaling_manager.scaling_changed.connect(self.on_scaling_changed)
         
         self.set_initial_window_size()
         self.kr_tags_df = self._load_kr_tags()
@@ -337,8 +337,11 @@ class ModernMainWindow(QMainWindow):
         self.app_context.middle_section_controller = self.middle_section_controller
 
         self.prompt_gen_controller = PromptGenerationController(self.app_context)
-
-        self.connect_signals()
+        
+        # MainController 초기화 및 신호 연결
+        self.controller = MainController(self)
+        self.scaling_manager.scaling_changed.connect(self.controller.on_scaling_changed)
+        self.controller.connect_signals()
         # 🆕 메인 생성 파라미터 모드 관리자 추가
         self.generation_params_manager = GenerationParamsManager(self)
         
@@ -364,6 +367,9 @@ class ModernMainWindow(QMainWindow):
         self.negative_prompt_textedit.viewport().installEventFilter(self)
 
         self.resolution_is_detected = False
+        
+        # 초기화 완료 후 splitter stretch factor 업데이트
+        QTimer.singleShot(100, self.update_splitter_stretch_factors)
 
     def apply_dynamic_styles(self):
         """동적 스타일시트 적용"""
@@ -385,60 +391,10 @@ class ModernMainWindow(QMainWindow):
             # 폴백: 기존 정적 스타일 사용
             self.setStyleSheet(CUSTOM["main"])
     
-    def on_scaling_changed(self, new_scale):
-        """스케일링 변경 시 호출"""
-        print(f"UI 스케일링이 {new_scale:.2f}x로 변경되었습니다.")
-        self.apply_dynamic_styles()
-        # 메뉴바에 UI 설정 추가할 것이라면 여기서 업데이트
-        self.refresh_all_ui_elements()
-    
-    def refresh_all_ui_elements(self):
-        """모든 UI 요소 새로고침"""
-        try:
-            dynamic_styles = get_dynamic_styles()
-            
-            # 기존 위젯들의 스타일 업데이트
-            for widget in self.findChildren(QPushButton):
-                # 기본 버튼 스타일 클래스를 확인하고 적절한 동적 스타일 적용
-                current_style = widget.styleSheet()
-                if "accent_blue" in current_style:
-                    widget.setStyleSheet(dynamic_styles.get('primary_button', ''))
-                elif "bg_tertiary" in current_style:
-                    widget.setStyleSheet(dynamic_styles.get('secondary_button', ''))
-            
-            for widget in self.findChildren(QLabel):
-                if 'label_style' in widget.styleSheet() or not widget.styleSheet():
-                    widget.setStyleSheet(dynamic_styles.get('label_style', ''))
-            
-            for widget in self.findChildren(QLineEdit):
-                widget.setStyleSheet(dynamic_styles.get('compact_lineedit', ''))
-                
-            for widget in self.findChildren(QTextEdit):
-                widget.setStyleSheet(dynamic_styles.get('compact_textedit', ''))
-            
-            for widget in self.findChildren(QCheckBox):
-                widget.setStyleSheet(dynamic_styles.get('dark_checkbox', ''))
-            
-            # 폰트 크기가 하드코딩된 위젯들 업데이트
-            if hasattr(self, 'progress_label'):
-                scaled_size = get_scaled_font_size(16)
-                self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {scaled_size}px; margin-right: 10px;")
-                
-            if hasattr(self, 'result_label1'):
-                scaled_size = get_scaled_font_size(18)  
-                self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {scaled_size}px;")
-                
-            if hasattr(self, 'result_label2'):
-                scaled_size = get_scaled_font_size(18)
-                self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {scaled_size}px;")
-                
-        except Exception as e:
-            print(f"UI 요소 새로고침 중 오류: {e}")
-    
     def show_scaling_settings(self):
         """UI 스케일링 설정 다이얼로그 표시"""
         dialog = ScalingSettingsDialog(self)
-        dialog.scaling_changed.connect(self.on_scaling_changed)
+        dialog.scaling_changed.connect(self.controller.on_scaling_changed)
         dialog.exec()
 
     # 자동완성 기능 사용 가능 여부를 확인하는 헬퍼 메서드
@@ -461,7 +417,7 @@ class ModernMainWindow(QMainWindow):
         self.status_bar.setStyleSheet(CUSTOM["status_bar"])
         
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         
         left_panel = self.create_left_panel()
         self.image_window = self.create_right_panel()
@@ -474,13 +430,13 @@ class ModernMainWindow(QMainWindow):
         left_panel.setMinimumSize(get_scaled_size(600), get_scaled_size(350))   # 초기 크기 힌트 (FHD 대응)
         self.image_window.setMinimumSize(get_scaled_size(650), get_scaled_size(350))  # FHD 대응
 
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.image_window)
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(self.image_window)
         # FHD 대응: 더 균형잡힌 패널 비율 (45:55)
-        splitter.setStretchFactor(0, 45)
-        splitter.setStretchFactor(1, 55)
+        self.main_splitter.setStretchFactor(0, 45)
+        self.main_splitter.setStretchFactor(1, 55)
 
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(self.main_splitter)
 
     def create_middle_section(self):
         """중간 섹션: 동적 모듈 로드 및 EnhancedCollapsibleBox 하위로 배치"""
@@ -682,9 +638,9 @@ class ModernMainWindow(QMainWindow):
         top_layout.addWidget(search_box)
 
         # 검색 결과 표시 프레임
-        search_result_frame = QFrame()
-        search_result_frame.setStyleSheet(DARK_STYLES['compact_card'])
-        search_result_layout = QHBoxLayout(search_result_frame)
+        self.search_result_frame = QFrame()
+        self.search_result_frame.setStyleSheet(DARK_STYLES['compact_card'])
+        search_result_layout = QHBoxLayout(self.search_result_frame)
         search_result_layout.setContentsMargins(10, 6, 10, 6)
         
         # [수정] 결과 레이블을 self 변수로 저장
@@ -725,7 +681,7 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.addWidget(self.save_settings_btn)
         search_result_layout.addWidget(self.restore_btn)
         search_result_layout.addWidget(self.deep_search_btn)
-        top_layout.addWidget(search_result_frame)
+        top_layout.addWidget(self.search_result_frame)
         
         # 메인 프롬프트 창
         prompt_tabs = QTabWidget()
@@ -1512,33 +1468,6 @@ class ModernMainWindow(QMainWindow):
     def get_dark_color(self, color_key: str) -> str:
         return DARK_COLORS.get(color_key, '#FFFFFF')
 
-    def connect_signals(self):
-        self.search_btn.clicked.connect(self.trigger_search)
-        self.save_settings_btn.clicked.connect(self.save_all_current_settings)
-        self.restore_btn.clicked.connect(self.restore_search_results)
-        self.deep_search_btn.clicked.connect(self.open_depth_search_tab)
-        self.random_prompt_btn.clicked.connect(self.trigger_random_prompt)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        self.generate_button_main.clicked.connect(
-            self.generation_controller.execute_generation_pipeline
-        )
-        self.prompt_gen_controller.prompt_generated.connect(self.on_prompt_generated)
-        self.prompt_gen_controller.generation_error.connect(self.on_generation_error)
-        self.prompt_gen_controller.prompt_popped.connect(self.on_prompt_popped)
-        self.prompt_gen_controller.resolution_detected.connect(self.on_resolution_detected)
-        self.image_window.load_prompt_to_main_ui.connect(self.set_positive_prompt)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        self.connect_checkbox_signals()
-        self.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
-        self.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        if hasattr(self.image_window, 'generate_with_image_requested'):
-            self.image_window.generate_with_image_requested.connect(self.on_generate_with_image_requested)
-            print("✅ generate_with_image_requested 시그널이 연결되었습니다.")
-        else:
-            print("⚠️ generate_with_image_requested 시그널을 찾을 수 없습니다.")
-        if hasattr(self.image_window, 'send_to_inpaint_requested'):
-            self.image_window.send_to_inpaint_requested.connect(self.on_send_to_inpaint_requested)
 
 
     def set_positive_prompt(self, prompt: str):
@@ -2631,6 +2560,41 @@ class ModernMainWindow(QMainWindow):
         # 2. Inpaint 모드 활성화
         pil_image = history_item.image
         self.activate_inpaint_mode(pil_image)
+    
+    def update_splitter_stretch_factors(self):
+        """search_result_frame의 너비에 따라 splitter의 stretch factor를 동적으로 조정"""
+        if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
+            # search_result_frame의 실제 너비 측정
+            frame_width = self.search_result_frame.sizeHint().width()
+            
+            # 최소 필요 너비 (버튼들과 여백 고려)
+            min_required_width = get_scaled_size(800)  # 기본 최소 너비
+            
+            # 현재 윈도우 너비
+            window_width = self.width()
+            
+            # 좌측 패널의 최소 stretch factor 계산
+            # search_result_frame이 클수록 좌측 패널에 더 많은 공간 할당
+            if frame_width > min_required_width:
+                left_stretch = max(45, int(45 + (frame_width - min_required_width) / 20))
+            else:
+                left_stretch = 45
+                
+            # 우측 패널 stretch factor는 보완적으로 계산
+            right_stretch = max(35, 100 - left_stretch)
+            
+            # stretch factor 업데이트
+            self.main_splitter.setStretchFactor(0, left_stretch)
+            self.main_splitter.setStretchFactor(1, right_stretch)
+    
+    def resizeEvent(self, event):
+        """윈도우 크기 변경 시 splitter stretch factor 업데이트"""
+        super().resizeEvent(event)
+        
+        # 초기화가 완료된 후에만 실행
+        if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
+            # 약간의 지연을 주어 UI 렌더링 완료 후 업데이트
+            QTimer.singleShot(50, self.update_splitter_stretch_factors)
 
 if __name__ == "__main__":
     # 기존 환경 설정들...

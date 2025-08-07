@@ -36,20 +36,8 @@ class EnhancedCollapsibleBox(QWidget):
         self.toggle_button.setArrowType(Qt.ArrowType.RightArrow)
         self.toggle_button.toggled.connect(self.on_toggled)
         
-        # 동적 폰트 크기 적용
-        self.toggle_button.setStyleSheet(f"""
-            QToolButton {{
-                font-size: {get_scaled_font_size(21)}px;
-                font-weight: 600;
-                color: {DARK_COLORS['text_primary']};
-                text-align: left;
-                border: none;
-                padding: 4px;
-            }}
-            QToolButton:hover {{
-                background-color: {DARK_COLORS['bg_tertiary']};
-            }}
-        """)
+        # 테마에서 이미 동적 스케일링이 적용되므로 추가 스타일링 불필요
+        # DARK_STYLES['collapsible_box']에서 QToolButton 스타일을 사용
         
         # 우클릭 컨텍스트 메뉴 설정 (분리 가능한 경우에만)
         if self.detachable:
@@ -196,18 +184,10 @@ class EnhancedCollapsibleBox(QWidget):
             self.content_area.setWidget(placeholder)
             
             self.toggle_button.setText(f" 🔗 {self.title} (외부 창)")
-            # 분리 상태 스타일 적용
+            # 분리 상태 색상만 변경 (폰트는 테마에서 관리)
             self.toggle_button.setStyleSheet(f"""
                 QToolButton {{
-                    font-size: {get_scaled_font_size(16)}px;
-                    font-weight: 600;
                     color: {DARK_COLORS['accent_blue']};
-                    text-align: left;
-                    border: none;
-                    padding: 4px;
-                }}
-                QToolButton:hover {{
-                    background-color: {DARK_COLORS['bg_tertiary']};
                 }}
             """)
             self.toggle_button.setChecked(True)  # 펼쳐진 상태로 고정
@@ -217,20 +197,8 @@ class EnhancedCollapsibleBox(QWidget):
             # 복귀된 상태: 원본 콘텐츠 복원
             print(f"   - 정상 상태로 복원")
             self.toggle_button.setText(f" {self.title}")
-            # 정상 상태 스타일 복원
-            self.toggle_button.setStyleSheet(f"""
-                QToolButton {{
-                    font-size: {get_scaled_font_size(16)}px;
-                    font-weight: 600;
-                    color: {DARK_COLORS['text_primary']};
-                    text-align: left;
-                    border: none;
-                    padding: 4px;
-                }}
-                QToolButton:hover {{
-                    background-color: {DARK_COLORS['bg_tertiary']};
-                }}
-            """)
+            # 기본 테마 스타일로 복원 (스타일시트 제거)
+            self.toggle_button.setStyleSheet("")
             self.toggle_button.setEnabled(True)  # 토글 활성화
             self.toggle_button.setChecked(False)  # 접힌 상태로 복원
             self.content_area.setMaximumHeight(0)
