@@ -368,8 +368,9 @@ class ModernMainWindow(QMainWindow):
 
         self.resolution_is_detected = False
         
-        # 초기화 완료 후 splitter stretch factor 업데이트
-        QTimer.singleShot(100, self.update_splitter_stretch_factors)
+        # 초기화 완료 후 splitter stretch factor 업데이트 (다중 타이밍)
+        QTimer.singleShot(100, self.update_splitter_stretch_factors)   # 초기 호출
+        QTimer.singleShot(500, self.update_splitter_stretch_factors)   # 안전한 지연 호출
 
     def apply_dynamic_styles(self):
         """동적 스타일시트 적용"""
@@ -426,11 +427,11 @@ class ModernMainWindow(QMainWindow):
         window_width = self.width() if self.width() > 0 else get_scaled_size(1920)
         if window_width <= get_scaled_size(1920):  # FHD 이하
             # FHD에서는 좌측 패널 최소 너비를 줄여서 더 유연하게 조정
-            left_min_width = get_scaled_size(450)  # 600 -> 450으로 감소
-            left_min_size = get_scaled_size(450)
+            left_min_width = get_scaled_size(300)  # 600 -> 450으로 감소
+            left_min_size = get_scaled_size(300)
         else:  # QHD 이상
-            left_min_width = get_scaled_size(600)   # 기존 유지
-            left_min_size = get_scaled_size(600)
+            left_min_width = get_scaled_size(420)   # 기존 유지
+            left_min_size = get_scaled_size(420)
             
         left_panel.setMinimumWidth(left_min_width)
         self.image_window.setMinimumWidth(get_scaled_size(350))  # 우측 패널 최소 너비 유지
@@ -2606,7 +2607,18 @@ class ModernMainWindow(QMainWindow):
             gen_button_width = get_scaled_size(400)
         
         # 좌측 패널이 실제로 필요한 최소 너비
-        left_min_required = max(search_frame_width, gen_button_width, get_scaled_size(550))
+        # search_result_frame이 가려지지 않도록 보장
+        window_width_f = float(window_width)
+        if window_width <= get_scaled_size(1920):  # FHD 이하
+            base_min_required = get_scaled_size(300)
+        else:  # QHD 이상
+            base_min_required = get_scaled_size(420)
+            
+        # search_result_frame과 gen_button의 실제 필요 공간을 고려
+        content_min_required = max(search_frame_width, gen_button_width)
+        
+        # 최종 최소 필요 너비 (content가 가려지지 않도록)
+        left_min_required = max(base_min_required, content_min_required)
         
         # FHD 해상도 기준 적응적 비율 계산
         if window_width <= get_scaled_size(1920):  # FHD 이하
@@ -2624,9 +2636,21 @@ class ModernMainWindow(QMainWindow):
         left_stretch = max(25, min(45, left_stretch))  # FHD 대응으로 좌측 비율 감소
         right_stretch = 100 - left_stretch
         
+        # 좌측 패널의 최소 너비를 동적으로 업데이트 (search_result_frame이 가려지지 않도록)
+        left_widget = self.main_splitter.widget(0)
+        if left_widget and left_widget.minimumWidth() < left_min_required:
+            old_min_width = left_widget.minimumWidth()
+            left_widget.setMinimumWidth(left_min_required)
+            print(f"🔧 좌측 패널 최소 너비 업데이트: {old_min_width}px → {left_min_required}px")
+            
         # stretch factor 업데이트
         self.main_splitter.setStretchFactor(0, left_stretch)
         self.main_splitter.setStretchFactor(1, right_stretch)
+        
+        # 디버그 로그
+        print(f"📊 Splitter 비율 업데이트: 좌측={left_stretch}%, 우측={right_stretch}%, "
+              f"윈도우={window_width}px, search_frame={search_frame_width}px, "
+              f"gen_button={gen_button_width}px, 최소필요={left_min_required}px")
     
     def resizeEvent(self, event):
         """윈도우 크기 변경 시 splitter stretch factor 업데이트"""
@@ -2636,6 +2660,14 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
             # 약간의 지연을 주어 UI 렌더링 완료 후 업데이트
             QTimer.singleShot(50, self.update_splitter_stretch_factors)
+    
+    def showEvent(self, event):
+        """윈도우가 표시될 때 splitter stretch factor 업데이트"""
+        super().showEvent(event)
+        
+        # 윈도우가 완전히 표시된 후 stretch factor 적용
+        if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
+            QTimer.singleShot(200, self.update_splitter_stretch_factors)
 
 if __name__ == "__main__":
     # 기존 환경 설정들...

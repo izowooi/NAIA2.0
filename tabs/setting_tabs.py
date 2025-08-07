@@ -546,6 +546,13 @@ class SettingsWidget(QWidget):
         
         # 저장된 모듈 가시성 설정 적용
         QTimer.singleShot(200, self._apply_saved_module_visibility)
+        
+        # 저장된 탭 가시성 설정 적용
+        QTimer.singleShot(300, self._apply_saved_tab_visibility)
+        
+        # 저장된 자동완성 및 UI 설정 적용
+        QTimer.singleShot(400, self._apply_saved_autocomplete_settings)
+        QTimer.singleShot(500, self._apply_saved_ui_settings)
     
     def _apply_saved_module_visibility(self):
         """저장된 모듈 가시성 설정을 실제 UI에 적용"""
@@ -565,6 +572,71 @@ class SettingsWidget(QWidget):
                         box = controller.module_boxes[module_title]
                         box.setVisible(False)
                         print(f"Module '{module_title}' hidden on startup")
+    
+    def _apply_saved_tab_visibility(self):
+        """저장된 탭 가시성 설정을 실제 UI에 적용"""
+        if (hasattr(self.app_context, 'main_window') and 
+            hasattr(self.app_context.main_window, 'image_window') and 
+            hasattr(self.app_context.main_window.image_window, 'tab_controller')):
+            
+            tab_controller = self.app_context.main_window.image_window.tab_controller
+            
+            # 숨길 수 있는 탭들
+            hideable_tabs = [
+                'BrowserTabModule',      # 📦 Danbooru
+                'PNGInfoTabModule',      # 📝 PNG Info
+                'HookerTabModule',       # 🔍 Hooker
+                'StorytellerTabModule'   # Storyteller 탭
+            ]
+            
+            for tab_id in hideable_tabs:
+                if tab_id in tab_controller.tab_index_map:
+                    # 저장된 가시성 설정 가져오기 (기본값은 True)
+                    is_visible = self.settings_module.get_setting(f'tab_visibility.{tab_id}', True)
+                    
+                    # 탭 가시성 적용
+                    tab_index = tab_controller.tab_index_map[tab_id]
+                    tab_controller.tab_widget.setTabVisible(tab_index, is_visible)
+                    
+                    if not is_visible:
+                        print(f"📑 Tab '{tab_id}' hidden on startup based on saved settings")
+    
+    def _apply_saved_autocomplete_settings(self):
+        """저장된 자동완성 설정을 실제로 적용"""
+        # 저장된 자동완성 설정 가져오기
+        autocomplete_enabled = self.settings_module.get_setting('autocomplete.enabled', True)
+        
+        # 실제 자동완성 시스템에 반영
+        if hasattr(self.app_context, 'main_window'):
+            main_window = self.app_context.main_window
+            if hasattr(main_window, 'autocomplete_manager'):
+                # AutoCompleteManager의 enable/disable 메서드 사용
+                if autocomplete_enabled:
+                    main_window.autocomplete_manager.enable()
+                else:
+                    main_window.autocomplete_manager.disable()
+                print(f"🔍 Autocomplete {'enabled' if autocomplete_enabled else 'disabled'} on startup")
+    
+    def _apply_saved_ui_settings(self):
+        """저장된 UI 설정을 실제로 적용"""
+        # UI 스케일링 설정 적용
+        if hasattr(self.app_context, 'main_window'):
+            main_window = self.app_context.main_window
+            
+            # 스케일링 매니저 가져오기
+            if hasattr(main_window, 'scaling_manager'):
+                scaling_manager = main_window.scaling_manager
+                
+                # 저장된 UI 설정 가져오기
+                auto_scaling = self.settings_module.get_setting('ui.auto_scaling', True)
+                user_scale = self.settings_module.get_setting('ui.user_scale_factor', 1.0)
+                
+                # 설정 적용
+                scaling_manager.set_auto_scaling_enabled(auto_scaling)
+                if not auto_scaling:
+                    scaling_manager.set_user_scale_factor(user_scale)
+                    
+                print(f"🎨 UI scaling applied on startup: auto={auto_scaling}, scale={user_scale}")
     
     def reset_to_defaults(self):
         """설정을 기본값으로 리셋"""

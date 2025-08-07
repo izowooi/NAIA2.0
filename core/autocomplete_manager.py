@@ -257,7 +257,7 @@ class AutoCompleteManager(QObject):
     def disable(self):
         """자동완성 기능을 비활성화합니다."""
         if not hasattr(self, 'enabled'):
-            self.enabled = True
+            self.enabled = False
         self.enabled = False
         if self.popup and self.popup.isVisible():
             self.popup.hide()
