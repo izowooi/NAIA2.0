@@ -426,7 +426,7 @@ class GenerationController:
             self.generation_worker = None
 
     def _expand_wildcards_in_input(self, input_text: str) -> str:
-        """generation_controller 전용 경량화된 와일드카드 처리 (순차 카운터 공유)"""
+        """generation_controller 전용 와일드카드 처리 (_expand_recursive와 동일한 기능 지원)"""
         if not input_text or not input_text.strip():
             return input_text
         
@@ -445,15 +445,25 @@ class GenerationController:
                 )
                 prompt_context = self.context.current_prompt_context
             
-            # WildcardProcessor를 사용하여 와일드카드 확장
+            # WildcardProcessor를 사용하여 기존 처리 방식과 동일하게 처리
             from core.wildcard_processor import WildcardProcessor
             wildcard_processor = WildcardProcessor(self.context.wildcard_manager)
             
-            # 단일 문자열을 리스트로 변환하여 처리 후 다시 단일 문자열로 결합
-            expanded_tags = wildcard_processor.expand_tags([input_text], prompt_context)
+            # 1. 전체 문자열을 콤마로 분해하여 태그 리스트 생성 (기존 방식과 동일)
+            input_tags = [tag.strip() for tag in input_text.split(',') if tag.strip()]
             
-            # 확장된 태그들을 콤마로 연결하여 단일 문자열로 반환
-            expanded_result = ', '.join(expanded_tags) if expanded_tags else input_text
+            # 2. expand_tags 호출하여 완전한 와일드카드 확장 수행 (기존 방식과 동일)
+            expanded_tags = wildcard_processor.expand_tags(input_tags, prompt_context)
+            
+            # 3. global_append_tags가 있다면 뒤에 추가 (기존 방식과 동일)
+            result_parts = expanded_tags.copy()
+            if prompt_context.global_append_tags:
+                result_parts.extend(prompt_context.global_append_tags)
+                # global_append_tags 소비 후 초기화
+                prompt_context.global_append_tags.clear()
+            
+            # 4. 확장된 태그들을 콤마로 연결하여 단일 문자열로 반환
+            expanded_result = ', '.join(result_parts) if result_parts else input_text
             
             return expanded_result
             
