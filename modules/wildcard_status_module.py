@@ -82,10 +82,18 @@ class WildcardStatusModule(BaseMiddleModule):
         # 스트레치를 추가하여 버튼을 오른쪽으로 밀어냄
         bottom_layout.addStretch()
         
+        # 순차 리셋 버튼 추가
+        self.reset_sequential_button = QPushButton("🔄 순차 리셋")
+        self.reset_sequential_button.setStyleSheet(DARK_STYLES['compact_button'])
+        self.reset_sequential_button.setFixedSize(130, 22)
+        self.reset_sequential_button.clicked.connect(self.reset_sequential_wildcards)
+        self.reset_sequential_button.setToolTip("모든 순차 와일드카드 카운터를 초기화합니다")
+        bottom_layout.addWidget(self.reset_sequential_button)
+        
         # 폴더 열기 버튼 추가
         self.open_folder_button = QPushButton("📁 폴더 열기")
         self.open_folder_button.setStyleSheet(DARK_STYLES['compact_button'])
-        self.open_folder_button.setFixedSize(110, 22)
+        self.open_folder_button.setFixedSize(130, 22)
         self.open_folder_button.clicked.connect(self.open_wildcard_folder)
         self.open_folder_button.setToolTip("와일드카드 폴더를 파일 탐색기에서 엽니다")
         bottom_layout.addWidget(self.open_folder_button)
@@ -152,6 +160,34 @@ class WildcardStatusModule(BaseMiddleModule):
         if hasattr(self, 'count_label') and self.count_label:
             self.count_label.setText(f"로드된 와일드카드: {wildcard_count}개")
             
+    def reset_sequential_wildcards(self):
+        """
+        순차 리셋 버튼 클릭 시 호출되는 함수.
+        AppContext의 current_prompt_context에서 순차 와일드카드 카운터와 상태를 초기화합니다.
+        """
+        try:
+            if self.context.current_prompt_context:
+                # 순차 카운터 초기화
+                old_counter_count = len(self.context.current_prompt_context.sequential_counters)
+                old_state_count = len(self.context.current_prompt_context.wildcard_state)
+                
+                self.context.current_prompt_context.sequential_counters.clear()
+                self.context.current_prompt_context.wildcard_state.clear()
+                
+                print(f"🔄 순차 와일드카드 리셋 완료: 카운터 {old_counter_count}개, 상태 {old_state_count}개 초기화")
+                
+                # UI 즉시 업데이트
+                self.state_textbox.clear()
+                self.state_textbox.setPlaceholderText("순차 카운터가 리셋되었습니다. 다음 생성부터 새로 시작합니다.")
+                
+            else:
+                print("⚠️ 현재 프롬프트 컨텍스트가 없어 리셋할 항목이 없습니다.")
+                self.state_textbox.clear()
+                self.state_textbox.setPlaceholderText("리셋할 순차 와일드카드가 없습니다.")
+                
+        except Exception as e:
+            print(f"❌ 순차 와일드카드 리셋 중 오류 발생: {e}")
+
     def open_wildcard_folder(self):
         """
         폴더 열기 버튼 클릭 시 호출되는 함수.

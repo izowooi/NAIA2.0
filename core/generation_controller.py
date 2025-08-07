@@ -260,6 +260,16 @@ class GenerationController:
                     self.context.main_window.status_bar.showMessage("❌ 워크플로우 생성에 실패했습니다. 로그를 확인하세요.")
                     return
                 params['workflow'] = final_workflow
+
+            # --- 와일드카드 확장 처리 (API 호출 전) ---
+            if 'input' in params and params['input']:
+                expanded_input = self._expand_wildcards_in_input(params['input'])
+                params['input'] = expanded_input
+                print(f"🎲 와일드카드 확장: '{params['input'][:50]}{'...' if len(params['input']) > 50 else ''}'")
+                
+                # 와일드카드 상태 모듈 업데이트를 위한 이벤트 발행
+                if self.context.current_prompt_context:
+                    self.context.publish("prompt_generated", self.context.current_prompt_context)
             
             # --- 5. 스레드에서 API 호출 시작 ---
             self._start_threaded_generation(params, source_row)
@@ -414,6 +424,43 @@ class GenerationController:
         if self.generation_worker:
             self.generation_worker.deleteLater()
             self.generation_worker = None
+
+    def _expand_wildcards_in_input(self, input_text: str) -> str:
+        """generation_controller 전용 경량화된 와일드카드 처리 (순차 카운터 공유)"""
+        if not input_text or not input_text.strip():
+            return input_text
+        
+        try:
+            # AppContext의 기존 컨텍스트에서 순차 카운터 가져오기 (공유를 위해)
+            if self.context.current_prompt_context:
+                prompt_context = self.context.current_prompt_context
+            else:
+                # 컨텍스트가 없으면 새로 생성하여 AppContext에 저장
+                from core.prompt_context import PromptContext
+                import pandas as pd
+                
+                self.context.current_prompt_context = PromptContext(
+                    source_row=pd.Series(), 
+                    settings={}
+                )
+                prompt_context = self.context.current_prompt_context
+            
+            # WildcardProcessor를 사용하여 와일드카드 확장
+            from core.wildcard_processor import WildcardProcessor
+            wildcard_processor = WildcardProcessor(self.context.wildcard_manager)
+            
+            # 단일 문자열을 리스트로 변환하여 처리 후 다시 단일 문자열로 결합
+            expanded_tags = wildcard_processor.expand_tags([input_text], prompt_context)
+            
+            # 확장된 태그들을 콤마로 연결하여 단일 문자열로 반환
+            expanded_result = ', '.join(expanded_tags) if expanded_tags else input_text
+            
+            return expanded_result
+            
+        except Exception as e:
+            print(f"⚠️ 와일드카드 확장 중 오류 발생: {e}")
+            # 오류 발생 시 원본 텍스트 반환
+            return input_text
 
     def validate_parameters(self, params: dict) -> tuple[bool, str]:
         """파라미터 유효성 검사 로직"""
