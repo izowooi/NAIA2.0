@@ -95,9 +95,14 @@ class SettingsTabModule(BaseTabModule):
         value = self.settings_data
         try:
             for key in keys:
-                value = value[key]
+                if isinstance(value, dict):
+                    value = value.get(key)
+                    if value is None:
+                        return default
+                else:
+                    return default
             return value
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, AttributeError):
             return default
     
     def set_setting(self, key_path: str, value):

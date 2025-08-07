@@ -227,18 +227,19 @@ class MainController:
     
     def on_prompt_generated(self, prompt_text: str):
         """프롬프트 생성 완료 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        # MainWindow의 실제 구현 호출
+        self.main_window.on_prompt_generated(prompt_text)
         
     def on_generation_error(self, error_message: str):
         """생성 오류 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        # MainWindow의 실제 구현 호출
+        self.main_window.on_generation_error(error_message)
         
     def on_instant_generation_requested(self, tags_dict):
         """즉시 생성 요청 처리"""
-        # 이 메서드는 메인 파일에서 이동해올 예정
-        pass
+        # MainWindow의 실제 구현 호출 (있는 경우)
+        if hasattr(self.main_window, 'on_instant_generation_requested'):
+            self.main_window.on_instant_generation_requested(tags_dict)
     
     # === 설정 관리 메서드 ===
     

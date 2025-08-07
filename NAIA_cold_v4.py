@@ -1968,6 +1968,10 @@ class ModernMainWindow(QMainWindow):
         """컨트롤러로부터 생성된 프롬프트를 받아 UI에 업데이트"""
         self.main_prompt_textedit.setText(prompt_text)
         
+        # 랜덤 프롬프트 버튼 다시 활성화
+        self.random_prompt_btn.setEnabled(True)
+        self.status_bar.showMessage("프롬프트 생성 완료", 2000)
+        
         # [신규] 새 프롬프트 생성 시 반복 카운터 리셋
         if self.automation_module:
             self.automation_module.reset_repeat_counter()
