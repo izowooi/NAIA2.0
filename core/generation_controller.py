@@ -267,6 +267,12 @@ class GenerationController:
                 params['input'] = expanded_input
                 print(f"🎲 와일드카드 확장: '{params['input'][:50]}{'...' if len(params['input']) > 50 else ''}'")
                 
+                # --- 조건부 프롬프트 처리 (와일드카드 확장 후) ---
+                processed_input = self._apply_conditional_prompts(params['input'])
+                if processed_input != params['input']:
+                    params['input'] = processed_input
+                    print(f"🔀 조건부 프롬프트 적용: '{params['input'][:50]}{'...' if len(params['input']) > 50 else ''}'")
+                
                 # 와일드카드 상태 모듈 업데이트를 위한 이벤트 발행
                 if self.context.current_prompt_context:
                     self.context.publish("prompt_generated", self.context.current_prompt_context)
@@ -470,6 +476,73 @@ class GenerationController:
         except Exception as e:
             print(f"⚠️ 와일드카드 확장 중 오류 발생: {e}")
             # 오류 발생 시 원본 텍스트 반환
+            return input_text
+
+    def _apply_conditional_prompts(self, input_text: str) -> str:
+        """generation_controller 전용 조건부 프롬프트 처리 (와일드카드 확장 후 실행)"""
+        try:
+            # Conditional Prompt Module 찾기
+            conditional_module = None
+            for module in self.module_instances:
+                if hasattr(module, '__class__') and module.__class__.__name__ == 'PromptListModifierModule':
+                    conditional_module = module
+                    break
+            
+            # 모듈이 없거나 비활성화된 경우 원본 반환
+            if not conditional_module:
+                return input_text
+            
+            if not hasattr(conditional_module, 'enable_checkbox') or not conditional_module.enable_checkbox.isChecked():
+                return input_text
+            
+            # 규칙 텍스트 가져오기
+            if not hasattr(conditional_module, 'rules_textedit'):
+                return input_text
+            
+            rules_text = conditional_module.rules_textedit.toPlainText().strip()
+            if not rules_text:
+                return input_text
+            
+            print("🔀 조건부 프롬프트 처리 시작...")
+            
+            # 입력 문자열을 태그 리스트로 분해
+            input_tags = [tag.strip() for tag in input_text.split(',') if tag.strip()]
+            
+            # prefix, main, postfix 구분 (간소화: 모두 main으로 처리)
+            prefix_tags = []
+            main_tags = input_tags.copy()
+            postfix_tags = []
+            
+            # 조건부 프롬프트 규칙 적용
+            rules = conditional_module._parse_rules(rules_text)
+            
+            for rule in rules:
+                try:
+                    condition = rule['condition']
+                    action = rule['action']
+                    
+                    # 조건 확인
+                    condition_met = conditional_module._check_condition(condition, prefix_tags, main_tags, postfix_tags)
+                    
+                    if condition_met:
+                        # 액션 실행
+                        prefix_tags, main_tags, postfix_tags = conditional_module._execute_action(
+                            action, prefix_tags, main_tags, postfix_tags
+                        )
+                        print(f"  ✅ 규칙 적용: {rule['original']}")
+                        
+                except Exception as e:
+                    print(f"  ⚠️ 규칙 처리 오류: {e}")
+                    continue
+            
+            # 결과를 다시 문자열로 결합
+            result_tags = prefix_tags + main_tags + postfix_tags
+            result_text = ', '.join(result_tags)
+            
+            return result_text
+            
+        except Exception as e:
+            print(f"⚠️ 조건부 프롬프트 처리 중 오류: {e}")
             return input_text
 
     def validate_parameters(self, params: dict) -> tuple[bool, str]:
