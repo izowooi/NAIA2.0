@@ -221,6 +221,17 @@ class CharacterModule(BaseMiddleModule, ModeAwareModule):
 
         return widget
 
+    def get_or_create_context(self) -> PromptContext:
+        """순차 와일드카드 상태를 유지하기 위해 공유 컨텍스트를 가져오거나 생성합니다."""
+        if hasattr(self, 'app_context') and self.app_context and self.app_context.current_prompt_context:
+            # 메인 애플리케이션의 공유 컨텍스트가 있으면 사용
+            return self.app_context.current_prompt_context
+        else:
+            # 없으면 모듈 전용 컨텍스트를 생성/재사용 (순차 카운터 보존)
+            if not hasattr(self, '_module_context') or self._module_context is None:
+                self._module_context = PromptContext(source_row=pd.Series(), settings={})
+            return self._module_context
+
     def process_and_update_view(self) -> PromptContext:
         """와일드카드를 처리하고 UI를 업데이트하는 핵심 메소드"""
         if not self.activate_checkbox or not self.activate_checkbox.isChecked():
@@ -229,7 +240,8 @@ class CharacterModule(BaseMiddleModule, ModeAwareModule):
             self.modifiable_clone = {'characters': [], 'uc': []} # ⬅️ 비활성화 시 복제본도 초기화
             return None
 
-        temp_context = PromptContext(source_row=pd.Series(), settings={})
+        # 🔧 [수정] 공유 컨텍스트 사용으로 순차 와일드카드 상태 보존
+        context = self.get_or_create_context()
         processed_prompts, processed_ucs = [], []
 
         for widget in self.character_widgets:
@@ -237,13 +249,13 @@ class CharacterModule(BaseMiddleModule, ModeAwareModule):
                 prompt_tags = [t.strip() for t in widget.prompt_textbox.toPlainText().split(',')]
                 uc_tags = [t.strip() for t in widget.uc_textbox.toPlainText().split(',')]
                 
-                processed_prompts.append(', '.join(self.wildcard_processor.expand_tags(prompt_tags, temp_context)))
-                processed_ucs.append(', '.join(self.wildcard_processor.expand_tags(uc_tags, temp_context)))
+                processed_prompts.append(', '.join(self.wildcard_processor.expand_tags(prompt_tags, context)))
+                processed_ucs.append(', '.join(self.wildcard_processor.expand_tags(uc_tags, context)))
         
         self.last_processed_data = {'characters': processed_prompts, 'uc': processed_ucs}
         self.modifiable_clone = copy.deepcopy(self.last_processed_data)
         self.update_processed_display(processed_prompts, processed_ucs)
-        return temp_context
+        return context
 
     def on_random_prompt_triggered(self):
         """'랜덤 프롬프트' 버튼 클릭 시 호출되는 이벤트 핸들러"""
@@ -255,18 +267,6 @@ class CharacterModule(BaseMiddleModule, ModeAwareModule):
         """모듈의 파라미터를 반환합니다."""
         if not self.activate_checkbox or not self.activate_checkbox.isChecked():
             return {"characters": None}
-
-        # "생성 시 Reroll"이 체크된 경우에만 와일드카드 재처리
-        # if self.reroll_on_generate_checkbox.isChecked():
-        #     temp_context = self.process_and_update_view()
-        # else:
-        #     # 체크되지 않은 경우, 캐시된 마지막 결과 사용
-        #     temp_context = None
-
-        # 메인 컨텍스트에 와일드카드 처리 결과 병합
-        # if temp_context and hasattr(self, 'app_context') and self.app_context.current_prompt_context:
-        #     self.app_context.current_prompt_context.wildcard_history.update(temp_context.wildcard_history)
-        #     self.app_context.current_prompt_context.wildcard_state.update(temp_context.wildcard_state)
 
         return self.modifiable_clone
     

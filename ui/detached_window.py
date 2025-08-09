@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QMen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QCloseEvent, QAction, QKeySequence, QIcon
 from ui.theme import DARK_COLORS, DARK_STYLES
+from ui.scaling_manager import get_scaled_font_size
 
 class DetachedWindow(QMainWindow):
     """완전히 독립적인 분리 창 (부모 관계 없음)"""
@@ -262,7 +263,7 @@ class DetachedWindow(QMainWindow):
         error_label.setStyleSheet(f"""
             QLabel {{
                 color: {DARK_COLORS['text_secondary']};
-                font-size: 16px;
+                font-size: {get_scaled_font_size(16)}px;
                 padding: 50px;
             }}
         """)

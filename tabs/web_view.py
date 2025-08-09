@@ -4,6 +4,7 @@ from PyQt6.QtCore import QUrl, QStandardPaths, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QTextEdit, QFrame
 from interfaces.base_tab_module import BaseTabModule
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 import os
 import sys
 import re
@@ -83,7 +84,7 @@ class BrowserTab(QWidget):
         self.tags_display = QTextEdit()
         self.tags_display.setFixedHeight(150)
         self.tags_display.setReadOnly(True)
-        self.tags_display.setStyleSheet(f"{DARK_STYLES['compact_textedit']} font-size: 16px;")
+        self.tags_display.setStyleSheet(f"{DARK_STYLES['compact_textedit']} font-size: {get_scaled_font_size(16)}px;")
         self.tags_display.setPlaceholderText("Danbooru 페이지에서 '📝 태그 추출' 버튼을 클릭하세요...")
         self.tags_display.setVisible(False)
         bottom_panel_layout.addWidget(self.tags_display)
@@ -194,7 +195,7 @@ class BrowserTab(QWidget):
                     padding: 8px 16px;
                     font-weight: 500;
                     color: {DARK_COLORS['text_primary']};
-                    font-size: 20px;
+                    font-size: {get_scaled_font_size(20)}px;
                 }}
                 QPushButton:hover {{ background-color: #5CBF60; }}
             """)

@@ -4,14 +4,15 @@ from tabs.hooker.safe_executer import SafeExecutor
 from PyQt6.Qsci import QsciScintilla, QsciLexerPython
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, 
-    QFrame, QTextEdit, QPushButton, QSplitter, QGroupBox, QCheckBox, QComboBox
+    QFrame, QTextEdit, QPushButton, QSplitter, QGroupBox, QCheckBox, QComboBox, QTabWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QFont, QColor, QDesktopServices
 from core.prompt_context import PromptContext
 from typing import Dict, List, Any, Optional
 from PyQt6.QtWidgets import QDialog, QLineEdit, QDialogButtonBox
-from ui.theme import DARK_STYLES 
+from ui.theme import get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size
 from interfaces.base_tab_module import BaseTabModule
 import copy
 
@@ -33,6 +34,11 @@ class HookerTabModule(BaseTabModule):
             # HookerView는 AppContext를 필요로 하므로, initialize_with_context에서 주입받은 것을 사용
             self.hooker_widget = HookerView(self.app_context, parent)
         return self.hooker_widget
+    
+    def cleanup(self):
+        """정리 작업"""
+        if self.hooker_widget:
+            self.hooker_widget.cleanup_resources()
 
 class NewScriptDialog(QDialog):
     """새 스크립트 이름을 입력받는 커스텀 다이얼로그."""
@@ -48,13 +54,13 @@ class NewScriptDialog(QDialog):
             }}
             QLabel {{ 
                 color: #FFFFFF;
-                font-size: 20px; 
+                font-size: {get_scaled_font_size(20)}px; 
             }}
             QLineEdit {{ 
                 background-color: #3C3F41; 
                 border: 1px solid #555; 
                 padding: 8px; 
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 color: #FFFFFF;
                 border-radius: 4px;
             }}
@@ -65,7 +71,7 @@ class NewScriptDialog(QDialog):
                 padding: 8px 16px; 
                 border: none; 
                 border-radius: 4px; 
-                font-size: 20px; 
+                font-size: {get_scaled_font_size(20)}px; 
             }}
             QPushButton:hover {{ 
                 background-color: #1565C0; 
@@ -122,16 +128,16 @@ class TagDisplayWidget(QWidget):
         self.tag_display = QTextEdit()
         self.tag_display.setReadOnly(True)
         self.tag_display.setMaximumHeight(180)  # 1.5배 증가 (120 -> 180)
-        self.tag_display.setStyleSheet("""
-            QTextEdit {
+        self.tag_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #2D2D2D;
                 border: 1px solid #555555;
                 border-radius: 4px;
                 color: #FFFFFF;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 padding: 4px;
-            }
+            }}
         """)
         layout.addWidget(self.tag_display)
     
@@ -204,16 +210,16 @@ class PipelineStageWidget(QWidget):
         
         # 단계 제목
         stage_label = QLabel(f"📋 {self.stage_name}")
-        stage_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
+        stage_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: {get_scaled_font_size(14)}px;
                 font-weight: bold;
                 color: #4A9EFF;
                 background-color: #1E1E1E;
                 padding: 6px 10px;
                 border-radius: 4px;
                 border-left: 4px solid #4A9EFF;
-            }
+            }}
         """)
         main_layout.addWidget(stage_label)
         
@@ -261,16 +267,16 @@ class PipelineStageWidget(QWidget):
         # Removed Tags (2단계 이후에만 표시)
         self.removed_widget = TagDisplayWidget("Removed Tags")
         self.removed_widget.tag_display.setMaximumHeight(60)
-        self.removed_widget.tag_display.setStyleSheet("""
-            QTextEdit {
+        self.removed_widget.tag_display.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #2D1A1A;
                 border: 1px solid #AA5555;
                 border-radius: 4px;
                 color: #FFAAAA;
                 font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 20px;
+                font-size: {get_scaled_font_size(20)}px;
                 padding: 4px;
-            }
+            }}
         """)
         main_layout.addWidget(self.removed_widget)
         self.toggle_button = QPushButton("▼ 사용자 조작 영역 (접기)")
@@ -466,11 +472,11 @@ class PipelineStageWidget(QWidget):
         script_vars = {k: v for k, v in available_vars.items() if k in core_vars}
         filter_vars = {k: v for k, v in available_vars.items() if k not in core_vars}
 
-        output_text = "--- 사용 가능 변수 ---\n"
+        output_text = "--- 사용 가능 변수 --- : "
         output_text += ", ".join(sorted(script_vars.keys())) + "\n"
         
         if filter_vars:
-            output_text += "--- 사용 가능 필터 ---\n"
+            output_text += "--- 사용 가능 필터 --- : "
             # 필터는 3개씩 묶어서 줄바꿈하여 보기 좋게 표시
             sorted_filters = sorted(filter_vars.keys())
             filter_lines = [", ".join(sorted_filters[i:i+3]) for i in range(0, len(sorted_filters), 3)]
@@ -503,14 +509,14 @@ class PipelineStageWidget(QWidget):
             char_label = QLabel(f"C{i+1}: {display_prompt}")
             char_label.setFixedHeight(50)
             char_label.setWordWrap(True) # 자동 줄바꿈
-            char_label.setStyleSheet("""
-                QLabel {
+            char_label.setStyleSheet(f"""
+                QLabel {{
                     background-color: #2C3E50;
                     color: #ECF0F1;
                     padding: 8px;
                     border-radius: 3px;
-                    font-size: 18px;
-                }
+                    font-size: {get_scaled_font_size(18)}px;
+                }}
             """)
             self.character_display_layout.addWidget(char_label)
 
@@ -546,6 +552,9 @@ class HookerView(QWidget):
         self.char_module = None
         self.filter_variables = {}
         
+        # API payload 저장용
+        self.last_payload = None
+        
         self.init_ui()
         self.setup_event_connections()
         self._populate_script_combobox() # ⬅️ 초기 스크립트 목록 로드
@@ -556,9 +565,49 @@ class HookerView(QWidget):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
         
+        # 탭 위젯 생성
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                background-color: #2B2B2B;
+            }
+            QTabBar::tab {
+                background-color: #3D3D3D;
+                color: #FFFFFF;
+                border: 1px solid #555555;
+                padding: 8px 16px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #4A9EFF;
+                color: #FFFFFF;
+            }
+            QTabBar::tab:hover {
+                background-color: #4A4A4A;
+            }
+        """)
+        
+        # "Prompt Processing" 탭 생성
+        prompt_processing_tab = self.create_prompt_processing_tab()
+        self.tab_widget.addTab(prompt_processing_tab, "Prompt Processing")
+        
+        # "Generate API" 탭 생성
+        generate_api_tab = self.create_generate_api_tab()
+        self.tab_widget.addTab(generate_api_tab, "Generate API")
+        
+        main_layout.addWidget(self.tab_widget)
+    
+    def create_prompt_processing_tab(self) -> QWidget:
+        """Prompt Processing 탭 내용 생성"""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(8)
+        
         # 상단 컨트롤 패널
         control_panel = self.create_control_panel()
-        main_layout.addWidget(control_panel)
+        tab_layout.addWidget(control_panel)
         
         # 스크롤 가능한 파이프라인 단계 표시 영역
         scroll_area = QScrollArea()
@@ -591,7 +640,50 @@ class HookerView(QWidget):
             splitter.splitterMoved.connect(self._synchronize_splitters)
         
         scroll_area.setWidget(stages_container)
-        main_layout.addWidget(scroll_area)
+        tab_layout.addWidget(scroll_area)
+        
+        return tab_widget
+    
+    def create_generate_api_tab(self) -> QWidget:
+        """Generate API 탭 내용 생성"""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setContentsMargins(8, 8, 8, 8)
+        tab_layout.setSpacing(8)
+        
+        # 제목 라벨
+        title_label = QLabel("Generate API Payload")
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: {get_scaled_font_size(16)}px;
+                font-weight: bold;
+                color: #4A9EFF;
+                background-color: #1E1E1E;
+                padding: 8px 12px;
+                border-radius: 4px;
+                border-left: 4px solid #4A9EFF;
+            }}
+        """)
+        tab_layout.addWidget(title_label)
+        
+        # JSON 표시 영역
+        self.payload_display = QTextEdit()
+        self.payload_display.setReadOnly(True)
+        self.payload_display.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: #1A1A1A;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                color: #FFFFFF;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: {get_scaled_font_size(14)}px;
+                padding: 8px;
+            }}
+        """)
+        self.payload_display.setPlainText("No payload data available. Generate an image to see the API payload.")
+        tab_layout.addWidget(self.payload_display)
+        
+        return tab_widget
     
     def _synchronize_splitters(self, pos, index):
         """하나의 스플리터가 움직이면 다른 모든 스플리터를 동기화합니다."""
@@ -624,7 +716,8 @@ class HookerView(QWidget):
 
         # 1. 후킹 기능 활성화 체크박스
         self.enable_hooking_checkbox = QCheckBox("후킹 기능 활성화")
-        self.enable_hooking_checkbox.setStyleSheet(DARK_STYLES['dark_checkbox'] + "font-size: 18px;")
+        dynamic_styles = get_dynamic_styles()
+        self.enable_hooking_checkbox.setStyleSheet(dynamic_styles['dark_checkbox'])
         self.enable_hooking_checkbox.toggled.connect(self._on_enable_hooking_toggled)
         layout.addWidget(self.enable_hooking_checkbox)
 
@@ -632,17 +725,17 @@ class HookerView(QWidget):
 
         # 2. 스크립트 선택 UI
         script_label = QLabel("스크립트:")
-        script_label.setStyleSheet(DARK_STYLES['label_style'] + "font-size: 18px;")
+        script_label.setStyleSheet(dynamic_styles['label_style'])
         layout.addWidget(script_label)
         
         self.script_combo = QComboBox()
         self.script_combo.setMinimumWidth(300) # ⬅️ 너비 1.5배 증가
-        self.script_combo.setStyleSheet(DARK_STYLES['compact_combobox'] + "font-size: 18px;")
+        self.script_combo.setStyleSheet(dynamic_styles['compact_combobox'])
         self.script_combo.currentIndexChanged.connect(self._on_script_selected)
         layout.addWidget(self.script_combo)
 
         # 3. 버튼들
-        button_style = DARK_STYLES['secondary_button'] + "font-size: 18px; padding: 8px 16px;"
+        button_style = dynamic_styles['secondary_button']
 
         self.save_button = QPushButton("저장")
         self.save_button.setStyleSheet(button_style)
@@ -672,6 +765,12 @@ class HookerView(QWidget):
         if self.app_context:
             self.app_context.subscribe("prompt_generated", self.on_prompt_generated)
             print("🔗 Hooker 뷰: 이벤트 구독 완료")
+            
+            # API payload 업데이트를 위한 타이머 설정
+            from PyQt6.QtCore import QTimer
+            self.api_payload_timer = QTimer()
+            self.api_payload_timer.timeout.connect(self.check_api_payload)
+            self.api_payload_timer.start(1000)  # 1초마다 체크
     
     def toggle_monitoring(self):
         """파이프라인 감시 토글"""
@@ -1080,3 +1179,60 @@ class HookerView(QWidget):
             allowed_vars['character_uc'] = char_uc
 
         return allowed_vars
+    
+    def check_api_payload(self):
+        """API payload를 안전하게 체크하고 업데이트"""
+        try:
+            if not self.app_context:
+                return
+                
+            # 현재 탭이 Generate API 탭인지 확인
+            if hasattr(self, 'tab_widget') and self.tab_widget.currentIndex() == 1:
+                payload_data = self.app_context.get_api_payload()
+                if payload_data and payload_data != self.last_payload:
+                    self.last_payload = payload_data
+                    payload = payload_data.get('payload', {})
+                    if payload:
+                        self.update_payload_display(payload)
+        except Exception as e:
+            print(f"⚠️ API payload 체크 중 오류: {e}")
+    
+    def update_payload_display(self, payload: dict):
+        """API 페이로드를 JSON 형태로 표시"""
+        if not payload:
+            self.payload_display.setPlainText("No payload data available.")
+            return
+        
+        try:
+            # payload를 복사하여 mask와 image 데이터 제한
+            import copy
+            display_payload = copy.deepcopy(payload)
+            
+            # mask와 image 관련 필드들의 데이터를 제한
+            for key in ['mask', 'image', 'init_image', 'init_images']:
+                if key in display_payload and display_payload[key]:
+                    if isinstance(display_payload[key], str):
+                        # 문자열인 경우 (base64 데이터)
+                        display_payload[key] = display_payload[key][:50] + "...[truncated]"
+                    elif isinstance(display_payload[key], list):
+                        # 리스트인 경우 (여러 이미지)
+                        truncated_list = []
+                        for item in display_payload[key]:
+                            if isinstance(item, str):
+                                truncated_list.append(item[:50] + "...[truncated]")
+                            else:
+                                truncated_list.append(item)
+                        display_payload[key] = truncated_list
+            
+            # JSON으로 포맷팅하여 표시
+            json_text = json.dumps(display_payload, indent=2, ensure_ascii=False)
+            self.payload_display.setPlainText(json_text)
+            
+        except Exception as e:
+            self.payload_display.setPlainText(f"Error displaying payload: {str(e)}")
+    
+    def cleanup_resources(self):
+        """리소스 정리"""
+        if hasattr(self, 'api_payload_timer'):
+            self.api_payload_timer.stop()
+            print("🧹 API payload 타이머 정리 완료")

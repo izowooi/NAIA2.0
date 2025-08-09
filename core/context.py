@@ -47,6 +47,11 @@ class AppContext:
         self.session_save_path = Path("output") / session_timestamp
         self.session_save_path.mkdir(parents=True, exist_ok=True)
         self.subscribers: Dict[str, List[Callable]] = {}
+        self.settings_manager = None
+        
+        # API payload 안전 저장소
+        self._last_api_payload = None
+        self._payload_lock = False
 
     def set_api_mode(self, mode: str):
         """API 모드를 변경하고 모든 구독자에게 알림 (ComfyUI 지원 추가)"""
@@ -69,6 +74,26 @@ class AppContext:
     def get_api_mode(self) -> str:
         """현재 API 모드 반환"""
         return self.current_api_mode
+    
+    def set_base_save_directory(self, base_path: str):
+        """기본 저장 디렉토리를 설정합니다"""
+        try:
+            # 새로운 기본 경로 설정
+            base_dir = Path(base_path)
+            base_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 세션 타임스탬프를 유지하면서 새 경로 설정
+            session_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.session_save_path = base_dir / session_timestamp
+            self.session_save_path.mkdir(parents=True, exist_ok=True)
+            
+            print(f"Save directory changed to: {self.session_save_path}")
+            
+            # 저장 경로 변경 이벤트 발행
+            self.publish("save_directory_changed", {"new_path": str(self.session_save_path)})
+            
+        except Exception as e:
+            print(f"Save directory setting failed: {e}")
     
     def subscribe_mode_swap(self, callback):
         """모드 변경 이벤트 구독"""
@@ -122,3 +147,40 @@ class AppContext:
         hooks = self.pipeline_hooks.get(pipeline_name, {}).get(hook_point, [])
         # 정렬된 튜플에서 모듈 인스턴스만 추출하여 반환
         return [module_instance for priority, module_instance in hooks]
+    
+    def register_settings_manager(self, settings_manager):
+        """Settings 탭에서 설정 관리자를 등록"""
+        self.settings_manager = settings_manager
+        print("✅ Settings Manager가 AppContext에 등록되었습니다.")
+    
+    def store_api_payload(self, payload: dict, api_type: str = "Unknown"):
+        """API payload를 안전하게 저장"""
+        if self._payload_lock:
+            return  # 이미 처리 중이면 무시
+        
+        try:
+            import copy
+            self._payload_lock = True
+            self._last_api_payload = {
+                'payload': copy.deepcopy(payload),
+                'api_type': api_type,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"⚠️ API payload 저장 실패: {e}")
+        finally:
+            self._payload_lock = False
+    
+    def get_api_payload(self) -> dict:
+        """저장된 API payload를 안전하게 반환"""
+        if self._payload_lock:
+            return {}  # 처리 중이면 빈 딕셔너리 반환
+        
+        try:
+            if self._last_api_payload:
+                import copy
+                return copy.deepcopy(self._last_api_payload)
+            return {}
+        except Exception as e:
+            print(f"⚠️ API payload 읽기 실패: {e}")
+            return {}

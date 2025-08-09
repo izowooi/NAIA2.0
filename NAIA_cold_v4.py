@@ -4,22 +4,26 @@ import os
 import json
 import pandas as pd
 import random
-from PIL import Image
+import requests
+from io import BytesIO
+from PIL import Image, ImageGrab
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QCheckBox, QComboBox, QFrame,
     QScrollArea, QSplitter, QStatusBar, QTabWidget, QMessageBox, QSpinBox, QSlider, QDoubleSpinBox,
-    QFileDialog, QWidgetAction, QButtonGroup, QMenu
+    QFileDialog, QWidgetAction, QButtonGroup, QMenu, QProgressDialog
 )
 from core.middle_section_controller import MiddleSectionController
 from core.context import AppContext
 from core.generation_controller import GenerationController
-from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM
+from ui.theme import DARK_COLORS, DARK_STYLES, CUSTOM, get_dynamic_styles
+from ui.scaling_manager import get_scaling_manager, get_scaled_font_size, get_scaled_size
+from ui.scaling_settings_dialog import ScalingSettingsDialog
 from ui.collapsible import CollapsibleBox
 from ui.right_view import RightView
 from ui.resolution_manager_dialog import ResolutionManagerDialog
-from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QAction
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QFontDatabase, QIntValidator, QDoubleValidator, QTextCursor, QCursor
+from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, QTimer, QEvent, QMimeData
 from core.search_controller import SearchController
 from core.search_result_model import SearchResultModel
 from core.autocomplete_manager import AutoCompleteManager
@@ -27,6 +31,9 @@ from core.tag_data_manager import TagDataManager
 from core.wildcard_manager import WildcardManager
 from core.prompt_generation_controller import PromptGenerationController
 from utils.load_generation_params import GenerationParamsManager
+from ui.img2img_popup import Img2ImgPopup
+from ui.img2img_panel import Img2ImgPanel
+from core.main_controller import MainController
 
 cfg_validator = QDoubleValidator(1.0, 10.0, 1)
 step_validator = QIntValidator(1, 50)
@@ -93,16 +100,204 @@ def get_autocomplete_manager(app_context=None):
         _autocomplete_manager = AutoCompleteManager(app_context)  # 1회만 생성
     return _autocomplete_manager
 
+class ImageDownloadThread(QThread):
+    image_downloaded = pyqtSignal(Image.Image)
+    download_failed = pyqtSignal(str)
+    
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+        
+    def run(self):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(self.url, headers=headers, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            # 이미지 데이터를 메모리로 읽기
+            image_data = BytesIO(response.content)
+            pil_image = Image.open(image_data)
+            
+            # RGB로 변환 (RGBA나 다른 모드일 수 있음)
+            if pil_image.mode in ('RGBA', 'LA'):
+                # 투명 배경을 흰색으로 변환
+                background = Image.new('RGB', pil_image.size, (255, 255, 255))
+                if pil_image.mode == 'RGBA':
+                    background.paste(pil_image, mask=pil_image.split()[-1])
+                else:
+                    background.paste(pil_image, mask=pil_image.split()[-1])
+                pil_image = background
+            elif pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            self.image_downloaded.emit(pil_image)
+            
+        except requests.exceptions.RequestException as e:
+            self.download_failed.emit(f"네트워크 오류: {str(e)}")
+        except Exception as e:
+            self.download_failed.emit(f"이미지 처리 오류: {str(e)}")
+
+
+class PromptTextEdit(QTextEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setAcceptDrops(True)
+        self.download_thread = None
+        self.progress_dialog = None
+        # AppContext를 나중에 주입받을 변수
+        self.app_context = None
+
+    def insertFromMimeData(self, source: QMimeData):
+        # 1. 클립보드 이미지 처리
+        if source.hasImage():
+            pil_img = ImageGrab.grabclipboard()
+            if isinstance(pil_img, Image.Image):
+                self.show_img2img_popup(pil_img)
+                return  # 기본 텍스트 삽입 방지
+
+        # 2. 파일 드롭 처리
+        if source.hasUrls():
+            for url in source.urls():
+                # 로컬 파일 경로 처리
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if path and os.path.exists(path):
+                        ext = os.path.splitext(path)[1].lower()
+                        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'):
+                            pil_img = Image.open(path)
+                            self.show_img2img_popup(pil_img)
+                            return
+                # 웹 URL 처리
+                else:
+                    url_string = url.toString()
+                    if self.is_web_image_url(url_string):
+                        self.download_web_image(url_string)
+                        return
+        
+        # 3. 이미지 데이터가 아니면 기본 붙여넣기 동작 수행
+        super().insertFromMimeData(source)
+
+    def is_web_image_url(self, url_string: str) -> bool:
+        """웹 이미지 URL인지 확인"""
+        if not url_string.startswith(('http://', 'https://')):
+            return False
+        
+        # URL 끝에 이미지 확장자가 있는지 확인
+        ext = os.path.splitext(url_string.split('?')[0])[1].lower()
+        return ext in ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')
+
+    def download_web_image(self, url: str):
+        """웹 이미지를 다운로드하여 처리"""
+        # 이미 다운로드 중이면 무시
+        if self.download_thread and self.download_thread.isRunning():
+            return
+            
+        # 프로그레스 다이얼로그 생성
+        self.progress_dialog = QProgressDialog("이미지 다운로드 중...", "취소", 0, 0, self)
+        self.progress_dialog.setWindowTitle("이미지 다운로드")
+        self.progress_dialog.setModal(True)
+        self.progress_dialog.show()
+        
+        # 다운로드 스레드 시작
+        self.download_thread = ImageDownloadThread(url)
+        self.download_thread.image_downloaded.connect(self.on_image_downloaded)
+        self.download_thread.download_failed.connect(self.on_download_failed)
+        self.download_thread.finished.connect(self.on_download_finished)
+        
+        # 취소 버튼 연결
+        self.progress_dialog.canceled.connect(self.cancel_download)
+        
+        self.download_thread.start()
+    
+    def on_image_downloaded(self, pil_image: Image.Image):
+        """이미지 다운로드 완료 시 호출"""
+        self.show_img2img_popup(pil_image)
+    
+    def on_download_failed(self, error_msg: str):
+        """다운로드 실패 시 호출"""
+        QMessageBox.warning(self, "다운로드 실패", f"이미지를 다운로드할 수 없습니다.\n\n{error_msg}")
+    
+    def on_download_finished(self):
+        """다운로드 완료 후 정리"""
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+        self.download_thread = None
+    
+    def cancel_download(self):
+        """다운로드 취소"""
+        if self.download_thread and self.download_thread.isRunning():
+            self.download_thread.terminate()
+            self.download_thread.wait()
+        self.on_download_finished()
+
+    def show_img2img_popup(self, pil_image: Image.Image):
+        main_window = self.window()
+        popup = Img2ImgPopup(pil_image=pil_image, app_context=self.app_context, parent=main_window)
+
+        # 팝업의 신호를 메인 윈도우의 슬롯에 연결
+        if hasattr(main_window, 'activate_img2img_panel'):
+            popup.img2img_requested.connect(main_window.activate_img2img_panel)
+        if hasattr(main_window, 'activate_inpaint_mode'):
+            popup.inpaint_requested.connect(main_window.activate_inpaint_mode)
+
+        # 팝업 위치 조정 및 실행
+        cursor_pos = QCursor.pos()
+        popup_rect = popup.geometry()
+
+        # 팝업의 좌상단 위치 계산 (마우스 커서 x 좌표 중앙, 마우스 커서 y 좌표 - 팝업 높이)
+        new_x = cursor_pos.x() - popup_rect.width() // 2
+        new_y = cursor_pos.y() - popup_rect.height()
+
+        # 화면 경계 처리 (선택 사항)
+        screen = main_window.screen()
+        screen_rect = screen.availableGeometry()
+        new_x = max(screen_rect.left() + 5, min(new_x, screen_rect.right() - popup_rect.width() - 5))
+        new_y = max(screen_rect.top() + 5, min(new_y, screen_rect.bottom() - popup_rect.height() - 5))
+
+        popup.move(new_x, new_y)
+
+        popup.exec()
+
+    def dragEnterEvent(self, event):
+        """드래그 진입 시 이벤트 (선택적으로 미리보기 제공)"""
+        if event.mimeData().hasUrls():
+            # 웹 URL 미리 체크해서 드래그 커서 변경 가능
+            for url in event.mimeData().urls():
+                url_string = url.toString()
+                if self.is_web_image_url(url_string):
+                    event.acceptProposedAction()
+                    return
+        
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        """드래그 이동 시 이벤트"""
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                url_string = url.toString()
+                if self.is_web_image_url(url_string):
+                    event.acceptProposedAction()
+                    return
+        
+        super().dragMoveEvent(event)
+
 class ModernMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NAIA v2.0.0 Dev")
+        
+        # 스케일링 매니저 초기화 (UI 생성 전에 먼저 초기화)
+        self.scaling_manager = get_scaling_manager()
+        
         self.set_initial_window_size()
         self.kr_tags_df = self._load_kr_tags()
         self.params_expanded = False
         
-        # 어두운 테마 적용
-        self.setStyleSheet(CUSTOM["main"])
+        # 동적 테마 적용
+        self.apply_dynamic_styles()
         
         # 새로 추가: 파라미터 확장 상태 추적
         self.params_expanded = False
@@ -118,16 +313,19 @@ class ModernMainWindow(QMainWindow):
         #  검색 결과를 저장할 변수 및 컨트롤러 초기화
         self.search_results = SearchResultModel()
         self.search_controller = SearchController()
-        self.search_controller.search_progress.connect(self.update_search_progress)
-        self.search_controller.partial_search_result.connect(self.on_partial_search_result) # 이 줄 추가
-        self.search_controller.search_complete.connect(self.on_search_complete)
-        self.search_controller.search_error.connect(self.on_search_error)
+        # 검색 컨트롤러 시그널 연결은 MainController에서 처리됩니다
 
         self.image_window = None 
         # [신규] 데이터 및 와일드카드 관리자 초기화
         self.tag_data_manager = TagDataManager()
         self.wildcard_manager = WildcardManager()
         self.app_context = AppContext(self, self.wildcard_manager, self.tag_data_manager)
+
+        self.img2img_panel = Img2ImgPanel(self)
+
+        # MainController 초기화 (UI 초기화 전에 생성)
+        self.controller = MainController(self)
+        self.scaling_manager.scaling_changed.connect(self.controller.on_scaling_changed)
 
         self.init_ui()
         
@@ -140,8 +338,9 @@ class ModernMainWindow(QMainWindow):
         self.app_context.middle_section_controller = self.middle_section_controller
 
         self.prompt_gen_controller = PromptGenerationController(self.app_context)
-
-        self.connect_signals()
+        
+        # 신호 연결 (UI 초기화 후)
+        self.controller.connect_signals()
         # 🆕 메인 생성 파라미터 모드 관리자 추가
         self.generation_params_manager = GenerationParamsManager(self)
         
@@ -161,7 +360,41 @@ class ModernMainWindow(QMainWindow):
         self.autocomplete_manager = get_autocomplete_manager(app_context=self.app_context)
         self.workflow_manager = self.app_context.comfyui_workflow_manager
 
+        self.main_prompt_textedit.installEventFilter(self)
+        self.negative_prompt_textedit.installEventFilter(self)
+        self.main_prompt_textedit.viewport().installEventFilter(self)
+        self.negative_prompt_textedit.viewport().installEventFilter(self)
+
         self.resolution_is_detected = False
+        
+        # 초기화 완료 후 splitter stretch factor 업데이트
+        QTimer.singleShot(100, self.update_splitter_stretch_factors)
+
+    def apply_dynamic_styles(self):
+        """동적 스타일시트 적용"""
+        try:
+            dynamic_styles = get_dynamic_styles()
+            # 메인 윈도우 스타일 적용 (CUSTOM["main"] 대신 동적 스타일 사용)
+            main_style = f"""
+                QMainWindow {{
+                    background-color: {DARK_COLORS['bg_primary']};
+                    color: {DARK_COLORS['text_primary']};
+                    font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                    font-size: {get_scaled_font_size(14)}px;
+                }}
+            """
+            self.setStyleSheet(main_style)
+            print(f"동적 UI 스케일링 적용됨 (스케일: {self.scaling_manager.get_scale_factor():.2f}x)")
+        except Exception as e:
+            print(f"동적 스타일 적용 실패: {e}")
+            # 폴백: 기존 정적 스타일 사용
+            self.setStyleSheet(CUSTOM["main"])
+    
+    def show_scaling_settings(self):
+        """UI 스케일링 설정 다이얼로그 표시"""
+        dialog = ScalingSettingsDialog(self)
+        dialog.scaling_changed.connect(self.controller.on_scaling_changed)
+        dialog.exec()
 
     # 자동완성 기능 사용 가능 여부를 확인하는 헬퍼 메서드
     def is_autocomplete_available(self) -> bool:
@@ -181,26 +414,37 @@ class ModernMainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("1단계 구현 완료: 메인 스플리터 통합")
         self.status_bar.setStyleSheet(CUSTOM["status_bar"])
+        
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         
         left_panel = self.create_left_panel()
         self.image_window = self.create_right_panel()
 
-        # 최소 너비 설정 (완전히 숨기기 전 최소 크기)
-        left_panel.setMinimumWidth(720)   # 좌측 패널 최소 너비
-        self.image_window.setMinimumWidth(400)  # 우측 패널 최소 너비
+        # 해상도별 최소 너비 설정
+        window_width = self.width() if self.width() > 0 else get_scaled_size(1920)
+        if window_width <= get_scaled_size(1920):  # FHD 이하
+            # FHD에서는 좌측 패널 최소 너비를 줄여서 더 유연하게 조정
+            left_min_width = get_scaled_size(300)  # 600 -> 450으로 감소
+            left_min_size = get_scaled_size(300)
+        else:  # QHD 이상
+            left_min_width = get_scaled_size(450)   # 기존 유지
+            left_min_size = get_scaled_size(450)
+            
+        left_panel.setMinimumWidth(left_min_width)
+        self.image_window.setMinimumWidth(get_scaled_size(350))  # 우측 패널 최소 너비 유지
         
         # 선호 크기 설정 (초기 크기)
-        left_panel.setMinimumSize(720, 400)   # 초기 크기 힌트
-        self.image_window.setMinimumSize(800, 400)
+        left_panel.setMinimumSize(left_min_size, get_scaled_size(350))
+        self.image_window.setMinimumSize(get_scaled_size(650), get_scaled_size(350))
 
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.image_window)
-        splitter.setStretchFactor(0, 40)
-        splitter.setStretchFactor(1, 60)
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(self.image_window)
+        # FHD 대응: 더 균형잡힌 패널 비율 (45:55)
+        self.main_splitter.setStretchFactor(0, 45)
+        self.main_splitter.setStretchFactor(1, 55)
 
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(self.main_splitter)
 
     def create_middle_section(self):
         """중간 섹션: 동적 모듈 로드 및 EnhancedCollapsibleBox 하위로 배치"""
@@ -226,7 +470,7 @@ class ModernMainWindow(QMainWindow):
             self.middle_section_controller.build_ui(middle_layout)
 
             # [신규] 모듈 로드 완료 후 자동화 시그널 연결
-            self.connect_automation_signals()
+            self.controller.connect_automation_signals()
 
             # 상태 메시지 업데이트
             loaded_count = len(self.middle_section_controller.module_instances)
@@ -267,12 +511,13 @@ class ModernMainWindow(QMainWindow):
         middle_container = self.create_middle_section()
         main_splitter.addWidget(middle_container)
 
-        # 스플리터 비율 설정 (상단 40%, 중간 60%)
-        main_splitter.setStretchFactor(0, 40)
-        main_splitter.setStretchFactor(1, 60)
+        # FHD 대응: 스플리터 비율 설정 (상단 45%, 중간 55%)
+        main_splitter.setStretchFactor(0, 45)
+        main_splitter.setStretchFactor(1, 55)
         
         # 메인 레이아웃에 스플리터 추가
         main_layout.addWidget(main_splitter)
+        main_layout.insertWidget(1, self.img2img_panel)
 
         # === 하단 영역: 확장 가능한 생성 제어 영역 ===
         bottom_area = self.create_enhanced_generation_area()
@@ -385,7 +630,7 @@ class ModernMainWindow(QMainWindow):
         rating_layout.addStretch(1)
 
         self.progress_label = QLabel("")
-        self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: 16px; margin-right: 10px;")
+        self.progress_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-size: {get_scaled_font_size(16)}px; margin-right: 10px;")
         rating_layout.addWidget(self.progress_label)
         
         self.search_btn = QPushButton("검색")
@@ -401,38 +646,38 @@ class ModernMainWindow(QMainWindow):
         top_layout.addWidget(search_box)
 
         # 검색 결과 표시 프레임
-        search_result_frame = QFrame()
-        search_result_frame.setStyleSheet(DARK_STYLES['compact_card'])
-        search_result_layout = QHBoxLayout(search_result_frame)
+        self.search_result_frame = QFrame()
+        self.search_result_frame.setStyleSheet(DARK_STYLES['compact_card'])
+        search_result_layout = QHBoxLayout(self.search_result_frame)
         search_result_layout.setContentsMargins(10, 6, 10, 6)
         
         # [수정] 결과 레이블을 self 변수로 저장
-        self.result_label1 = QLabel("Searched: 0")
-        self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
-        self.result_label2 = QLabel("Remain: 0")
-        self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: 18px;")
+        self.result_label1 = QLabel("검색: 0")
+        self.result_label1.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
+        self.result_label2 = QLabel("남음: 0")
+        self.result_label2.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; font-family: 'Pretendard'; font-size: {get_scaled_font_size(18)}px;")
         
         search_result_layout.addWidget(self.result_label1)
         search_result_layout.addWidget(self.result_label2)
         search_result_layout.addStretch(1)
 
         self.save_settings_btn = QPushButton("💾 설정 저장")
-        self.save_settings_btn.setStyleSheet("""
-            QPushButton {
+        self.save_settings_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #4CAF50;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
                 font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(12)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #5CBF60;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #3E8E41;
-            }
+            }}
         """)
         self.save_settings_btn.setToolTip("현재 모든 설정을 저장합니다")
         
@@ -444,7 +689,7 @@ class ModernMainWindow(QMainWindow):
         search_result_layout.addWidget(self.save_settings_btn)
         search_result_layout.addWidget(self.restore_btn)
         search_result_layout.addWidget(self.deep_search_btn)
-        top_layout.addWidget(search_result_frame)
+        top_layout.addWidget(self.search_result_frame)
         
         # 메인 프롬프트 창
         prompt_tabs = QTabWidget()
@@ -461,7 +706,8 @@ class ModernMainWindow(QMainWindow):
         negative_prompt_layout.setContentsMargins(4, 4, 4, 4)
         
         # [수정] 메인 프롬프트 텍스트 위젯을 self 변수로 저장
-        self.main_prompt_textedit = QTextEdit()
+        self.main_prompt_textedit = PromptTextEdit()
+        self.main_prompt_textedit.app_context = self.app_context # AppContext 주입
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.main_prompt_textedit.setPlaceholderText("메인 프롬프트를 입력하세요...")
         self.main_prompt_textedit.setMinimumHeight(100)
@@ -470,7 +716,8 @@ class ModernMainWindow(QMainWindow):
         self.main_prompt_textedit.customContextMenuRequested.connect(self.show_prompt_context_menu)
         self.main_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         
-        self.negative_prompt_textedit = QTextEdit()
+        self.negative_prompt_textedit = PromptTextEdit()
+        self.negative_prompt_textedit.app_context = self.app_context
         self.negative_prompt_textedit.setStyleSheet(DARK_STYLES['compact_textedit'])
         self.negative_prompt_textedit.setPlaceholderText("네거티브 프롬프트를 입력하세요...")
         self.negative_prompt_textedit.setMinimumHeight(100)
@@ -827,7 +1074,7 @@ class ModernMainWindow(QMainWindow):
 
         # ComfyUI 섹션 제목
         comfyui_section_label = QLabel("🎨 ComfyUI 옵션")
-        comfyui_section_label.setStyleSheet(DARK_STYLES['label_style'].replace("font-size: 19px;", "font-size: 18px; font-weight: 600;"))
+        comfyui_section_label.setStyleSheet(DARK_STYLES['label_style'].replace(f"font-size: {get_scaled_font_size(19)}px;", f"font-size: {get_scaled_font_size(18)}px; font-weight: 600;"))
         self.comfyui_option_widget_layout.addWidget(comfyui_section_label)
 
         # v-prediction 체크박스
@@ -931,18 +1178,18 @@ class ModernMainWindow(QMainWindow):
         gen_control_layout.setContentsMargins(12, 12, 12, 12)
         gen_control_layout.setSpacing(8)
         
-        gen_button_layout = QHBoxLayout()
-        gen_button_layout.setSpacing(6)
+        self.gen_button_layout = QHBoxLayout()
+        self.gen_button_layout.setSpacing(6)
         
         self.random_prompt_btn = QPushButton("랜덤/다음 프롬프트")
         self.random_prompt_btn.setStyleSheet(DARK_STYLES['secondary_button'])
-        gen_button_layout.addWidget(self.random_prompt_btn)
+        self.gen_button_layout.addWidget(self.random_prompt_btn)
         
         self.generate_button_main = QPushButton("🎨 이미지 생성 요청")
         self.generate_button_main.setStyleSheet(DARK_STYLES['primary_button'])
-        gen_button_layout.addWidget(self.generate_button_main)
+        self.gen_button_layout.addWidget(self.generate_button_main)
         
-        gen_control_layout.addLayout(gen_button_layout)
+        gen_control_layout.addLayout(self.gen_button_layout)
         gen_control_layout.addSpacing(12)
         
         # 🔥 수정: 체크박스 레이아웃을 화면 너비에 맞춰 조정
@@ -969,85 +1216,6 @@ class ModernMainWindow(QMainWindow):
         container_layout.addWidget(generation_control_frame)
         
         return container
-
-    # Dupliucated
-    # def get_main_parameters(self) -> dict:
-    #     """메인 UI의 파라미터들을 수집하여 딕셔너리로 반환합니다."""
-    #     params = {}
-    #     try:
-    #         # 해상도 파싱 - 공백 처리 개선
-    #         resolution_text = self.resolution_combo.currentText()
-    #         if " x " in resolution_text:
-    #             width_str, height_str = resolution_text.split(" x ")
-    #             width, height = int(width_str.strip()), int(height_str.strip())
-    #         else:
-    #             # 기본값 설정
-    #             width, height = 1024, 1024
-            
-    #         # 시드 처리
-    #         if self.seed_fix_checkbox.isChecked():
-    #             try:
-    #                 seed_value = int(self.seed_input.text())
-    #             except ValueError:
-    #                 seed_value = -1
-    #         else:
-    #             seed_value = random.randint(0, 9999999999)
-    #             self.seed_input.setText(str(seed_value))
-
-    #         # 프롬프트 처리 (쉼표 기준 정리)
-    #         processed_input = ', '.join([item.strip() for item in self.main_prompt_textedit.toPlainText().split(',') if item.strip()])
-    #         processed_negative_prompt = ', '.join([item.strip() for item in self.negative_prompt_textedit.toPlainText().split(',') if item.strip()])
-
-    #         # 🔧 수정: 실제 위젯 이름에 맞게 파라미터 수집
-    #         params = {
-    #             "action": "generate",
-    #             "access_token": "",
-    #             "input": processed_input,
-    #             "negative_prompt": processed_negative_prompt,
-    #             "model": self.model_combo.currentText(),
-    #             "scheduler": self.scheduler_combo.currentText(),
-    #             "sampler": self.sampler_combo.currentText(),
-    #             "resolution": self.resolution_combo.currentText(),  # UI 표시용
-    #             "width": width,
-    #             "height": height,
-    #             "seed": seed_value,
-    #             "random_resolution": self.random_resolution_checkbox.isChecked(),
-    #             "steps": self.steps_spinbox.value(),
-    #             "cfg_scale": self.cfg_scale_slider.value() / 10.0,  # 슬라이더 값(10~300) → 실제 값(1.0~30.0)
-    #             "cfg_rescale": self.cfg_rescale_slider.value() / 100.0,  # 슬라이더 값(0~100) → 실제 값(0.0~1.0)
-                
-    #             # 고급 체크박스들 (딕셔너리에서 직접 접근)
-    #             "SMEA": self.advanced_checkboxes["SMEA"].isChecked(),
-    #             "DYN": self.advanced_checkboxes["DYN"].isChecked(),
-    #             "VAR+": self.advanced_checkboxes["VAR+"].isChecked(),
-    #             "DECRISP": self.advanced_checkboxes["DECRISP"].isChecked(),
-                
-    #             # 커스텀 API 파라미터
-    #             "use_custom_api_params": self.custom_api_checkbox.isChecked(),
-    #             "custom_api_params": self.custom_script_textbox.toPlainText()
-    #         }
-            
-    #         # 🆕 추가: WEBUI 전용 파라미터들 (해당 모드일 때만)
-    #         if hasattr(self, 'enable_hr_checkbox'):
-    #             params.update({
-    #                 "enable_hr": self.enable_hr_checkbox.isChecked(),
-    #                 "hr_scale": self.hr_scale_spinbox.value() if hasattr(self, 'hr_scale_spinbox') else 1.5,
-    #                 "hr_upscaler": self.hr_upscaler_combo.currentText() if hasattr(self, 'hr_upscaler_combo') else "Lanczos",
-    #                 "denoising_strength": self.denoising_strength_slider.value() / 100.0 if hasattr(self, 'denoising_strength_slider') else 0.5,
-    #                 "hires_steps": self.hires_steps_spinbox.value() if hasattr(self, 'hires_steps_spinbox') else 0
-    #             })
-                
-    #         # 🆕 추가: 자동 해상도 맞춤 옵션
-    #         if hasattr(self, 'auto_fit_resolution_checkbox'):
-    #             params["auto_fit_resolution"] = self.auto_fit_resolution_checkbox.isChecked()
-                
-    #     except (ValueError, KeyError, AttributeError) as e:
-    #         print(f"❌ 파라미터 수집 오류: {e}")
-    #         # 오류 발생 시 사용자에게 알림
-    #         self.status_bar.showMessage(f"⚠️ 생성 파라미터 값에 오류가 있습니다: {e}", 5000)
-    #         return {}  # 빈 딕셔너리 반환
-
-    #     return params
     
     def toggle_params_panel(self):
         """생성 파라미터 패널 토글"""
@@ -1158,6 +1326,13 @@ class ModernMainWindow(QMainWindow):
                             self.app_context.secure_token_manager.save_token('webui_url', clean_url)
                             self.app_context.set_api_mode(mode)
                             
+                            # ✅ WEBUI 웹뷰 탭 열기
+                            if self.image_window and hasattr(self.image_window, 'tab_controller'):
+                                self.image_window.tab_controller.add_tab_by_name(
+                                    'SimpleWebViewTabModule',
+                                    api_url=validated_url
+                                )
+                            
                         else:
                             # ❌ 연결 실패 시에만 API 관리 창으로 이동
                             self.status_bar.showMessage(f"❌ WEBUI 연결 실패: {webui_url}", 5000)
@@ -1245,6 +1420,13 @@ class ModernMainWindow(QMainWindow):
                             # 검증된 URL을 키링에 저장
                             self.app_context.secure_token_manager.save_token('comfyui_url', comfyui_url)
                             self.app_context.set_api_mode(mode)
+                            
+                            # ✅ ComfyUI 웹뷰 탭 열기
+                            if self.image_window and hasattr(self.image_window, 'tab_controller'):
+                                self.image_window.tab_controller.add_tab_by_name(
+                                    'SimpleWebViewTabModule',
+                                    api_url=f"http://{comfyui_url}"
+                                )
 
                         else:
                             # ❌ 연결 실패
@@ -1294,31 +1476,6 @@ class ModernMainWindow(QMainWindow):
     def get_dark_color(self, color_key: str) -> str:
         return DARK_COLORS.get(color_key, '#FFFFFF')
 
-    def connect_signals(self):
-        self.search_btn.clicked.connect(self.trigger_search)
-        self.save_settings_btn.clicked.connect(self.save_all_current_settings)
-        self.restore_btn.clicked.connect(self.restore_search_results)
-        self.deep_search_btn.clicked.connect(self.open_depth_search_tab)
-        self.random_prompt_btn.clicked.connect(self.trigger_random_prompt)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        self.generate_button_main.clicked.connect(
-            self.generation_controller.execute_generation_pipeline
-        )
-        self.prompt_gen_controller.prompt_generated.connect(self.on_prompt_generated)
-        self.prompt_gen_controller.generation_error.connect(self.on_generation_error)
-        self.prompt_gen_controller.prompt_popped.connect(self.on_prompt_popped)
-        self.prompt_gen_controller.resolution_detected.connect(self.on_resolution_detected)
-        self.image_window.load_prompt_to_main_ui.connect(self.set_positive_prompt)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        self.connect_checkbox_signals()
-        self.workflow_load_btn.clicked.connect(self._load_custom_workflow_from_image)
-        self.workflow_default_btn.clicked.connect(self._on_workflow_type_changed)
-        self.image_window.instant_generation_requested.connect(self.on_instant_generation_requested)
-        if hasattr(self.image_window, 'generate_with_image_requested'):
-            self.image_window.generate_with_image_requested.connect(self.on_generate_with_image_requested)
-            print("✅ generate_with_image_requested 시그널이 연결되었습니다.")
-        else:
-            print("⚠️ generate_with_image_requested 시그널을 찾을 수 없습니다.")
 
 
     def set_positive_prompt(self, prompt: str):
@@ -1465,7 +1622,14 @@ class ModernMainWindow(QMainWindow):
                 print(f"  - info_text type: {type(info_text)}, length: {len(info_text) if info_text else 'None'}")
                 print(f"  - source_row type: {type(source_row)}")
                 
-                self.image_window.add_to_history(image_object, raw_bytes, info_text, source_row)
+                # 🆕 확장된 메타데이터와 함께 히스토리 추가
+                self.image_window.add_to_history(
+                    image_object, 
+                    raw_bytes, 
+                    info_text, 
+                    source_row,
+                    generation_result=result  # 🆕 전체 결과 객체 전달
+                )
             except Exception as e:
                 print(f"❌ 히스토리 추가 실패: {e}")
                 import traceback
@@ -1603,7 +1767,7 @@ class ModernMainWindow(QMainWindow):
         
         # [신규] 새 검색 시작 시 기존 결과 초기화
         self.search_results = SearchResultModel()
-        self.result_label1.setText("Searched: 0")
+        self.result_label1.setText("검색: 0")
 
         # UI에서 검색 파라미터 수집
         search_params = {
@@ -1634,8 +1798,8 @@ class ModernMainWindow(QMainWindow):
     def on_partial_search_result(self, partial_df: pd.DataFrame):
         """부분 검색 결과를 받아 UI에 즉시 반영"""
         self.search_results.append_dataframe(partial_df)
-        self.result_label1.setText(f"Searched: {self.search_results.get_count()}")
-        self.result_label2.setText(f"Remain: {self.search_results.get_count()}")
+        self.result_label1.setText(f"검색: {self.search_results.get_count()}")
+        self.result_label2.setText(f"남음: {self.search_results.get_count()}")
 
     def on_search_complete(self, total_count: int):
         """검색 완료 시 호출되는 슬롯, 결과 파일 저장"""
@@ -1712,8 +1876,8 @@ class ModernMainWindow(QMainWindow):
         self.search_results.append_dataframe(result_model.get_dataframe())
         self.search_results.deduplicate()
         count = self.search_results.get_count()
-        self.result_label1.setText(f"Searched: {count}")
-        self.result_label2.setText(f"Remain: {count}")
+        self.result_label1.setText(f"검색: {count}")
+        self.result_label2.setText(f"남음: {count}")
         self.status_bar.showMessage(f"✅ 이전 검색 결과 {count}개를 불러왔습니다.", 5000)
         self.load_thread.quit()         
 
@@ -1734,8 +1898,8 @@ class ModernMainWindow(QMainWindow):
         """심층 검색 탭에서 할당된 결과를 메인 UI에 반영"""
         self.search_results = new_search_result
         count = self.search_results.get_count()
-        self.result_label1.setText(f"Searched: {count}")
-        self.result_label2.setText(f"Remain: {count}")
+        self.result_label1.setText(f"검색: {count}")
+        self.result_label2.setText(f"남음: {count}")
         self.status_bar.showMessage(f"✅ 심층 검색 결과 {count}개가 메인에 할당되었습니다.", 5000)
 
     # --- [신규] 프롬프트 생성 관련 메서드들 ---
@@ -1873,6 +2037,9 @@ class ModernMainWindow(QMainWindow):
         
         event.accept()
 
+    def get_api_mode(self) -> str:
+        return self.app_context.get_api_mode()
+
     def on_resolution_detected(self, width: int, height: int):
         """컨트롤러로부터 받은 해상도를 콤보박스에 적용합니다."""
         resolution_str = f"{width} x {height}"
@@ -1907,7 +2074,7 @@ class ModernMainWindow(QMainWindow):
     # [신규] prompt_popped 시그널을 처리할 슬롯
     def on_prompt_popped(self, remaining_count: int):
         """프롬프트가 하나 사용된 후 남은 행 개수를 UI에 업데이트합니다."""
-        self.result_label2.setText(f"Remain: {remaining_count}")
+        self.result_label2.setText(f"남음: {remaining_count}")
 
     # [신규] 현재 활성화된 API 모드를 반환하는 메서드
     def get_current_api_mode(self) -> str:
@@ -2090,9 +2257,13 @@ class ModernMainWindow(QMainWindow):
             # 사용자의 주 모니터에서 작업 표시줄을 제외한 가용 영역의 정보를 가져옵니다.
             screen_geometry = QApplication.primaryScreen().availableGeometry()
             
-            # 화면 너비와 높이의 85%를 초기 창 크기로 설정합니다.
-            initial_width = int(screen_geometry.width() * 0.85)
-            initial_height = int(screen_geometry.height() * 0.85)
+            # FHD 모니터 대응: 화면 크기에 따라 적절한 비율 설정
+            # FHD(1920x1080) 이하에서는 더 작은 비율 사용
+            width_ratio = 0.75 if screen_geometry.width() <= 1920 else 0.85
+            height_ratio = 0.75 if screen_geometry.height() <= 1080 else 0.85
+            
+            initial_width = int(screen_geometry.width() * width_ratio)
+            initial_height = int(screen_geometry.height() * height_ratio)
             
             # 계산된 크기로 창의 크기를 조절합니다.
             self.resize(initial_width, initial_height)
@@ -2103,9 +2274,11 @@ class ModernMainWindow(QMainWindow):
             print(f"🖥️ 동적 창 크기 설정 완료: {initial_width}x{initial_height}")
 
         except Exception as e:
-            print(f"⚠️ 동적 창 크기 설정 실패: {e}. 기본 크기(1280x720)로 설정합니다.")
-            # 오류 발생 시 안전을 위한 기본값 설정
-            self.resize(1280, 720)
+            print(f"⚠️ 동적 창 크기 설정 실패: {e}. FHD 대응 기본 크기로 설정합니다.")
+            # 오류 발생 시 FHD 모니터에 적합한 기본값 설정
+            default_width = get_scaled_size(1200)
+            default_height = get_scaled_size(650)
+            self.resize(default_width, default_height)
 
     def show_prompt_context_menu(self, pos):
         """main_prompt_textedit에서 우클릭 시 KR_tags 정보를 포함한 커스텀 메뉴를 표시합니다."""
@@ -2148,11 +2321,11 @@ class ModernMainWindow(QMainWindow):
                 title_layout.setContentsMargins(8, 4, 8, 4)
                 
                 tag_label = QLabel(data.get('tag', ''))
-                tag_label.setStyleSheet("font-size: 24px; font-weight: 600; color: #000000;")
+                tag_label.setStyleSheet(f"font-size: {get_scaled_font_size(24)}px; font-weight: 600; color: #000000;")
                 
                 count_val = data.get('count', 0)
                 count_label = QLabel(f"{count_val:,}" if pd.notna(count_val) else "")
-                count_label.setStyleSheet("font-size: 15px; color: #111111;")
+                count_label.setStyleSheet(f"font-size: {get_scaled_font_size(15)}px; color: #111111;")
                 
                 title_layout.addWidget(tag_label)
                 title_layout.addStretch()
@@ -2361,12 +2534,157 @@ class ModernMainWindow(QMainWindow):
         # 2. 프롬프트 생성이 UI에 반영된 후 이미지 생성을 트리거하기 위해 QTimer.singleShot 사용
         QTimer.singleShot(100, self.generation_controller.execute_generation_pipeline)
 
+    def activate_img2img_panel(self, pil_image: Image.Image):
+        """Img2ImgPopup의 요청을 받아 Img2ImgPanel을 기본 모드로 활성화합니다."""
+        if hasattr(self, 'img2img_panel'):
+            print(f"🖼️ Img2Img 패널 활성화 (이미지 크기: {pil_image.size})")
+            self.img2img_panel.set_image(pil_image)
+            self.status_bar.showMessage("Img2Img 패널이 활성화되었습니다.", 3000)
 
+    def activate_inpaint_mode(self, pil_image: Image.Image):
+        """Img2ImgPopup의 요청을 받아 Img2ImgPanel을 활성화하고 즉시 Inpaint 창을 엽니다."""
+        if hasattr(self, 'img2img_panel'):
+            print(f"🎨 Inpaint 모드 활성화 요청 (이미지 크기: {pil_image.size})")
+            # 1. 먼저 패널을 이미지와 함께 활성화
+            self.img2img_panel.set_image(pil_image)
+            # 2. 패널의 Inpaint 버튼 클릭 로직을 즉시 실행
+            self.img2img_panel._on_inpaint_button_clicked()
+
+    def on_send_to_inpaint_requested(self, history_item):
+        """
+        Inpaint 요청을 받아 API 모드를 NAI로 전환하고
+        InpaintWindow를 즉시 실행합니다.
+        """
+        if not history_item or not hasattr(history_item, 'image'):
+            return
+
+        # 1. 현재 API 모드 확인 및 NAI로 전환 (필요시)
+        current_mode = self.get_current_api_mode()
+        if current_mode != "NAI":
+            self.status_bar.showMessage("🎨 NAI 모드로 자동 전환하고 Inpaint를 시작합니다.", 3000)
+            print(f"🔄 API 모드 자동 전환: {current_mode} -> NAI")
+            self.toggle_search_mode("NAI")
+        
+        # 2. Inpaint 모드 활성화
+        pil_image = history_item.image
+        self.activate_inpaint_mode(pil_image)
+    
+    def update_splitter_stretch_factors(self):
+        """좌측 패널의 실제 필요 공간에 따라 splitter의 stretch factor를 동적으로 조정"""
+        if not (hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter')):
+            return
+            
+        # 현재 윈도우 크기
+        window_width = self.width()
+        if window_width <= 0:
+            return
+            
+        # 좌측 패널의 핵심 컴포넌트들의 최소 필요 너비 계산
+        search_frame_width = 0
+        gen_button_width = 0
+        
+        try:
+            # search_result_frame 내부 요소들의 실제 필요 너비를 정확히 계산
+            if hasattr(self, 'search_result_frame') and self.search_result_frame:
+                # search_result_frame 내부의 모든 자식 위젯들의 너비 합산
+                children_width = 0
+                layout = self.search_result_frame.layout()
+                
+                if layout:
+                    # 레이아웃 내부의 모든 아이템들의 너비 계산
+                    for i in range(layout.count()):
+                        item = layout.itemAt(i)
+                        if item and item.widget():
+                            widget = item.widget()
+                            # 위젯의 실제 필요 너비 (sizeHint 기준)
+                            widget_width = widget.sizeHint().width()
+                            children_width += widget_width
+                    
+                    # 레이아웃 spacing 고려
+                    if layout.count() > 1:
+                        children_width += layout.spacing() * (layout.count() - 1)
+                
+                # frame의 margins/padding 고려
+                frame_margins = get_scaled_size(20)  # frame 자체의 여백
+                layout_margins = get_scaled_size(20)  # 레이아웃 여백
+                safety_margin = get_scaled_size(40)   # 안전 여백
+                
+                search_frame_width = children_width + frame_margins + layout_margins + safety_margin
+                
+                # 최소 너비 보장 (너무 작아지는 것을 방지)
+                min_search_width = get_scaled_size(450)  # 검색 결과 프레임 최소 너비
+                search_frame_width = max(search_frame_width, min_search_width)
+                
+            # gen_button_layout의 실제 필요 너비  
+            if hasattr(self, 'gen_button_layout'):
+                gen_button_width = (
+                    self.random_prompt_btn.sizeHint().width() +
+                    self.generate_button_main.sizeHint().width() +
+                    get_scaled_size(30)  # spacing과 여백
+                )
+        except Exception as e:
+            # 계산 실패 시 안전한 기본값 사용 (로그는 디버깅 시에만)
+            search_frame_width = get_scaled_size(500)
+            gen_button_width = get_scaled_size(400)
+        
+        # 좌측 패널이 실제로 필요한 최소 너비
+        left_min_required = max(search_frame_width, gen_button_width, get_scaled_size(550))
+        
+        # DPI와 UI 사이즈에 따른 동적 최소 stretch 계산
+        # 사용자의 splitter 조정 기능을 보장하면서도 내용이 잘리지 않도록 함
+        min_left_ratio = left_min_required / window_width
+        
+        # DPI별 기본 최소/최대 stretch 범위 설정
+        from ui.scaling_manager import get_current_scale_factor
+        dpi_scale = get_current_scale_factor()
+        
+        if dpi_scale <= 1.0:  # 100% 스케일 (FHD 등)
+            base_min_stretch = 25  # 최소 20%
+            base_max_stretch = 40  # 최대 40%
+        elif dpi_scale <= 1.5:  # 125-150% 스케일
+            base_min_stretch = 28  # 약간 증가
+            base_max_stretch = 42
+        else:  # 175% 이상 (고DPI)
+            base_min_stretch = 32  # 더 많은 공간 필요
+            base_max_stretch = 45
+        
+        # 계산된 최소 요구사항에 따라 동적 조정
+        dynamic_min_stretch = max(base_min_stretch, int(min_left_ratio * 100))
+        dynamic_max_stretch = max(base_max_stretch, dynamic_min_stretch + 5)  # 최소한의 조정 여유
+        
+        # FHD 해상도 기준 적응적 비율 계산
+        if window_width <= get_scaled_size(1920):  # FHD 이하
+            # FHD에서는 좌측 패널 비율을 줄여서 우측 패널(이미지 뷰어)에 더 많은 공간 할당
+            target_ratio = max(0.30, min(0.40, left_min_required / window_width))
+        else:  # QHD 이상
+            # 고해상도에서는 기존 비율 유지
+            target_ratio = max(0.40, min(0.50, left_min_required / window_width))
+            
+        # stretch factor 계산 (100 기준)
+        left_stretch = int(target_ratio * 100)
+        right_stretch = 100 - left_stretch
+        
+        # 동적으로 계산된 최소/최대 제한 적용
+        left_stretch = max(dynamic_min_stretch, min(dynamic_max_stretch, left_stretch))
+        right_stretch = 100 - left_stretch
+        
+        # stretch factor 업데이트
+        self.main_splitter.setStretchFactor(0, left_stretch)
+        self.main_splitter.setStretchFactor(1, right_stretch)
+    
+    def resizeEvent(self, event):
+        """윈도우 크기 변경 시 splitter stretch factor 업데이트"""
+        super().resizeEvent(event)
+        
+        # 초기화가 완료된 후에만 실행
+        if hasattr(self, 'search_result_frame') and hasattr(self, 'main_splitter'):
+            # 약간의 지연을 주어 UI 렌더링 완료 후 업데이트
+            QTimer.singleShot(50, self.update_splitter_stretch_factors)
 
 if __name__ == "__main__":
     # 기존 환경 설정들...
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
     os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "RoundPreferFloor"
     
     setup_webengine()

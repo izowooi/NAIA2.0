@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QObject, QThread
 from PyQt6.QtGui import QPixmap, QMouseEvent, QPainter, QColor, QAction, QKeyEvent
 from PIL import Image, ImageQt
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from interfaces.base_tab_module import BaseTabModule
 import piexif, io
 
@@ -133,6 +134,13 @@ class HistoryItem:
     filepath: str | None = None 
     metadata: Dict[str, Any] = field(default_factory=dict)
     comfyui_workflow: Dict[str, Any] = field(default_factory=dict)  # 🆕 ComfyUI 워크플로우 정보
+    
+    # 🆕 확장된 메타데이터 필드들
+    generation_params: Dict[str, Any] = field(default_factory=dict)  # UI에서 수집된 모든 파라미터
+    prompt_context: Dict[str, Any] = field(default_factory=dict)      # 프롬프트 처리 과정 정보
+    api_metadata: Dict[str, Any] = field(default_factory=dict)        # API 응답 메타데이터
+    creation_timestamp: str = field(default='')                       # 생성 시각
+    backend_type: str = field(default='NAI')                          # NAI/WEBUI/COMFYUI
 
 class ImageHistoryWindow(QWidget):
     """이미지 히스토리 패널"""
@@ -158,7 +166,7 @@ class ImageHistoryWindow(QWidget):
         title_label.setStyleSheet(f"""
             QLabel {{
                 color: {DARK_COLORS['text_primary']};
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
                 font-weight: bold;
                 padding: 4px;
             }}
@@ -400,6 +408,21 @@ class HistoryItemWidget(QWidget):
         reroll_action.triggered.connect(self.emit_reroll_prompt)
         menu.addAction(reroll_action)
 
+        # 🆕 메타데이터 복원 메뉴 추가
+        menu.addSeparator()
+        restore_params_action = QAction("⚙️ 생성 설정 복원", self)
+        # 생성 파라미터가 있는 경우에만 활성화
+        if (hasattr(self.history_item, 'generation_params') and 
+            self.history_item.generation_params):
+            restore_params_action.triggered.connect(self.restore_generation_params)
+        else:
+            restore_params_action.setEnabled(False)
+        menu.addAction(restore_params_action)
+        
+        show_metadata_action = QAction("🔍 전체 메타데이터 보기", self)
+        show_metadata_action.triggered.connect(self.show_full_metadata)
+        menu.addAction(show_metadata_action)
+        
         copy_png_action = QAction("PNG로 클립보드 복사", self)
         copy_webp_action = QAction("WEBP로 클립보드 복사", self)
         copy_png_action.triggered.connect(lambda: self.copy_image_to_clipboard('PNG'))
@@ -413,11 +436,24 @@ class HistoryItemWidget(QWidget):
         menu.exec(self.mapToGlobal(pos))
 
     def emit_load_prompt(self):
-        """'프롬프트 불러오기' 시그널을 발생시킵니다."""
-        info = self.history_item.info_text
-        # Negative prompt 이전 부분만 추출
-        positive_prompt = info.split('Negative prompt:')[0].strip()
-        self.load_prompt_requested.emit(positive_prompt)
+        """🆕 '프롬프트 불러오기' 시그널을 발생시킵니다 - main_prompt 우선 사용"""
+        # 🆕 prompt_context의 main_prompt를 우선적으로 사용 (\n\n 포함 원본)
+        if (hasattr(self.history_item, 'prompt_context') and 
+            self.history_item.prompt_context and 
+            'main_prompt' in self.history_item.prompt_context and
+            self.history_item.prompt_context['main_prompt']):
+            
+            prompt_to_load = self.history_item.prompt_context['main_prompt']
+            print(f"✅ 원본 프롬프트 불러오기 (main_prompt): {prompt_to_load[:50]}...")
+            self.load_prompt_requested.emit(prompt_to_load)
+            
+        else:
+            # 🔄 폴백: main_prompt가 없으면 기존 방식 사용
+            info = self.history_item.info_text
+            # Negative prompt 이전 부분만 추출
+            positive_prompt = info.split('Negative prompt:')[0].strip()
+            print(f"✅ 프롬프트 불러오기 (info_text 폴백): {positive_prompt[:50]}...")
+            self.load_prompt_requested.emit(positive_prompt)
 
     def emit_reroll_prompt(self):
         """'프롬프트 다시개봉' 시그널을 발생시킵니다."""
@@ -535,10 +571,255 @@ class HistoryItemWidget(QWidget):
         QApplication.clipboard().setPixmap(qimg)
         print(f"✅ 이미지가 클립보드에 복사되었습니다. ({fmt})")
 
+    def restore_generation_params(self):
+        """🆕 생성 파라미터를 UI에 복원"""
+        if not hasattr(self.history_item, 'generation_params') or not self.history_item.generation_params:
+            print("⚠️ 복원할 생성 파라미터가 없습니다.")
+            return
+            
+        try:
+            params = self.history_item.generation_params
+            
+            # AppContext를 통해 메인 윈도우에 접근
+            # HistoryItemWidget -> ImageHistoryWindow -> ImageWindow -> app_context -> main_window
+            parent_widget = self.parent()
+            while parent_widget and not hasattr(parent_widget, 'app_context'):
+                parent_widget = parent_widget.parent()
+            
+            if not parent_widget or not hasattr(parent_widget, 'app_context'):
+                print("❌ AppContext를 찾을 수 없습니다.")
+                return
+                
+            app_context = parent_widget.app_context
+            main_window = app_context.main_window
+            
+            # 🆕 프롬프트 복원 (main_prompt 우선, 없으면 input 사용)
+            prompt_context = self.history_item.prompt_context if hasattr(self.history_item, 'prompt_context') else {}
+            
+            if 'main_prompt' in prompt_context and prompt_context['main_prompt']:
+                # main_prompt가 있으면 이를 사용 (\n\n 포함하여 원본 형태로 복원)
+                main_window.main_prompt_textedit.setPlainText(prompt_context['main_prompt'])
+                print(f"✅ 원본 프롬프트 복원 (main_prompt): {prompt_context['main_prompt'][:50]}...")
+            elif 'input' in params:
+                # main_prompt가 없으면 기존 방식대로 input 사용
+                main_window.main_prompt_textedit.setPlainText(params['input'])
+                print(f"✅ 프롬프트 복원 (input): {params['input'][:50]}...")
+            
+            if 'negative_prompt' in params:
+                main_window.negative_prompt_textedit.setPlainText(params['negative_prompt'])
+                print(f"✅ 네거티브 프롬프트 복원: {params['negative_prompt'][:30]}...")
+            
+            # 모델/샘플러 복원
+            if 'model' in params:
+                index = main_window.model_combo.findText(params['model'])
+                if index >= 0:
+                    main_window.model_combo.setCurrentIndex(index)
+                    print(f"✅ 모델 복원: {params['model']}")
+            
+            if 'sampler' in params:
+                index = main_window.sampler_combo.findText(params['sampler'])
+                if index >= 0:
+                    main_window.sampler_combo.setCurrentIndex(index)
+                    print(f"✅ 샘플러 복원: {params['sampler']}")
+            
+            # 🆕 스케줄러 복원 (scheduler 또는 scheduler 관련 키 확인)
+            scheduler_keys = ['scheduler', 'noise_schedule']  # NAI에서 사용할 수 있는 키들
+            for key in scheduler_keys:
+                if key in params and hasattr(main_window, 'scheduler_combo'):
+                    scheduler_value = params[key]
+                    index = main_window.scheduler_combo.findText(scheduler_value)
+                    if index >= 0:
+                        main_window.scheduler_combo.setCurrentIndex(index)
+                        print(f"✅ 스케줄러 복원: {scheduler_value}")
+                        break  # 첫 번째로 찾은 키 사용
+            
+            # 해상도 복원
+            if 'width' in params and 'height' in params:
+                resolution_text = f"{params['width']} x {params['height']}"
+                index = main_window.resolution_combo.findText(resolution_text)
+                if index >= 0:
+                    main_window.resolution_combo.setCurrentIndex(index)
+                    print(f"✅ 해상도 복원: {resolution_text}")
+            
+            # 수치 파라미터 복원
+            if 'steps' in params:
+                main_window.steps_spinbox.setValue(params['steps'])
+                print(f"✅ 스텝 복원: {params['steps']}")
+            
+            if 'cfg_scale' in params:
+                main_window.cfg_scale_slider.setValue(int(params['cfg_scale'] * 10))
+                print(f"✅ CFG Scale 복원: {params['cfg_scale']}")
+            
+            if 'cfg_rescale' in params:
+                main_window.cfg_rescale_slider.setValue(int(params['cfg_rescale'] * 100))
+                print(f"✅ CFG Rescale 복원: {params['cfg_rescale']}")
+            
+            # 시드 복원
+            if 'seed' in params:
+                main_window.seed_input.setText(str(params['seed']))
+                main_window.seed_fix_checkbox.setChecked(True)  # 시드 고정 체크
+                print(f"✅ 시드 복원: {params['seed']}")
+            
+            # 고급 옵션 복원
+            advanced_options = ['SMEA', 'DYN', 'VAR+', 'DECRISP']
+            for option in advanced_options:
+                if option in params and hasattr(main_window, 'advanced_checkboxes') and option in main_window.advanced_checkboxes:
+                    main_window.advanced_checkboxes[option].setChecked(params[option])
+                    print(f"✅ {option} 복원: {params[option]}")
+            
+            # 🆕 추가 옵션들 복원
+            # 랜덤 해상도 옵션
+            if 'random_resolution' in params and hasattr(main_window, 'random_resolution_checkbox'):
+                main_window.random_resolution_checkbox.setChecked(params['random_resolution'])
+                print(f"✅ 랜덤 해상도 복원: {params['random_resolution']}")
+            
+            # 커스텀 API 파라미터 옵션들
+            if 'use_custom_api_params' in params and hasattr(main_window, 'custom_api_checkbox'):
+                main_window.custom_api_checkbox.setChecked(params['use_custom_api_params'])
+                print(f"✅ 커스텀 API 사용 복원: {params['use_custom_api_params']}")
+                
+            if 'custom_api_params' in params and hasattr(main_window, 'custom_script_textbox'):
+                main_window.custom_script_textbox.setPlainText(params['custom_api_params'])
+                print(f"✅ 커스텀 API 파라미터 복원: {len(params['custom_api_params'])} chars")
+            
+            # WEBUI 전용 옵션들 (해당 위젯이 있을 때만)
+            webui_options = {
+                'enable_hr': 'enable_hr_checkbox',
+                'hr_scale': 'hr_scale_spinbox', 
+                'denoising_strength': 'denoising_strength_slider'
+            }
+            
+            for param_key, widget_name in webui_options.items():
+                if param_key in params and hasattr(main_window, widget_name):
+                    widget = getattr(main_window, widget_name)
+                    if 'checkbox' in widget_name:
+                        widget.setChecked(params[param_key])
+                    elif 'spinbox' in widget_name:
+                        widget.setValue(params[param_key])
+                    elif 'slider' in widget_name and param_key == 'denoising_strength':
+                        widget.setValue(int(params[param_key] * 100))  # 0.0~1.0 → 0~100
+                    print(f"✅ {param_key} 복원: {params[param_key]}")
+            
+            print("✅ 생성 설정이 성공적으로 복원되었습니다.")
+            
+            # 상태바 메시지 표시
+            if hasattr(main_window, 'status_bar'):
+                backend = self.history_item.backend_type
+                timestamp = self.history_item.creation_timestamp
+                main_window.status_bar.showMessage(
+                    f"✅ 생성 설정 복원 완료 ({backend}, {timestamp})", 3000
+                )
+            
+        except Exception as e:
+            print(f"❌ 생성 파라미터 복원 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def show_full_metadata(self):
+        """🆕 전체 메타데이터를 다이얼로그에 표시"""
+        try:
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"이미지 메타데이터 - {self.history_item.backend_type}")
+            dialog.resize(800, 600)
+            
+            layout = QVBoxLayout(dialog)
+            
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setStyleSheet(DARK_STYLES['compact_textedit'])
+            
+            # 메타데이터 포맷팅
+            metadata_text = self._format_metadata_for_display()
+            text_edit.setPlainText(metadata_text)
+            
+            layout.addWidget(text_edit)
+            
+            # 버튼 레이아웃
+            button_layout = QHBoxLayout()
+            
+            # 복원 버튼
+            restore_btn = QPushButton("⚙️ 설정 복원")
+            restore_btn.setStyleSheet(DARK_STYLES['secondary_button'])
+            restore_btn.clicked.connect(self.restore_generation_params)
+            restore_btn.clicked.connect(dialog.accept)
+            button_layout.addWidget(restore_btn)
+            
+            # 닫기 버튼
+            close_btn = QPushButton("닫기")
+            close_btn.setStyleSheet(DARK_STYLES['secondary_button'])
+            close_btn.clicked.connect(dialog.accept)
+            button_layout.addWidget(close_btn)
+            
+            layout.addLayout(button_layout)
+            
+            dialog.exec()
+            
+        except Exception as e:
+            print(f"❌ 메타데이터 다이얼로그 표시 실패: {e}")
+
+    def _format_metadata_for_display(self) -> str:
+        """🆕 메타데이터를 보기 좋게 포맷팅"""
+        lines = []
+        
+        # 기본 정보
+        lines.append("=== 기본 정보 ===")
+        lines.append(f"생성 시각: {getattr(self.history_item, 'creation_timestamp', 'N/A')}")
+        lines.append(f"백엔드: {getattr(self.history_item, 'backend_type', 'N/A')}")
+        lines.append(f"파일 경로: {self.history_item.filepath or 'N/A'}")
+        lines.append("")
+        
+        # 생성 파라미터
+        if hasattr(self.history_item, 'generation_params') and self.history_item.generation_params:
+            lines.append("=== 생성 파라미터 ===")
+            for key, value in self.history_item.generation_params.items():
+                if key != 'credential':  # 민감한 정보 제외
+                    lines.append(f"{key}: {value}")
+            lines.append("")
+        
+        # 프롬프트 컨텍스트
+        if hasattr(self.history_item, 'prompt_context') and self.history_item.prompt_context:
+            lines.append("=== 프롬프트 정보 ===")
+            for key, value in self.history_item.prompt_context.items():
+                if key == 'source_tags' and isinstance(value, dict):
+                    lines.append(f"{key}: {len(value)} 태그")
+                    for tag_key, tag_value in value.items():
+                        if tag_value:
+                            lines.append(f"  - {tag_key}: {str(tag_value)[:100]}...")
+                elif key == 'main_prompt' and value:
+                    # 🆕 main_prompt는 줄바꿈을 포함한 원본 형태로 표시
+                    lines.append(f"{key} (원본, \\n\\n 포함):")
+                    lines.append(f"  {repr(value)[:200]}..." if len(repr(value)) > 200 else f"  {repr(value)}")
+                else:
+                    # 다른 필드들은 기존 방식으로 표시
+                    display_value = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
+                    lines.append(f"{key}: {display_value}")
+            lines.append("")
+        
+        # API 메타데이터
+        if hasattr(self.history_item, 'api_metadata') and self.history_item.api_metadata:
+            lines.append("=== API 정보 ===")
+            for key, value in self.history_item.api_metadata.items():
+                lines.append(f"{key}: {value}")
+            lines.append("")
+        
+        # 이미지 정보
+        lines.append("=== 이미지 정보 ===")
+        lines.append(f"크기: {self.history_item.image.size}")
+        lines.append(f"모드: {self.history_item.image.mode}")
+        lines.append(f"포맷: {getattr(self.history_item.image, 'format', 'N/A')}")
+        
+        if hasattr(self.history_item.image, 'info') and self.history_item.image.info:
+            lines.append(f"메타데이터 키: {list(self.history_item.image.info.keys())}")
+        
+        return "\n".join(lines)
+
 # --- 2. ImageWindow 클래스: 위젯들을 담는 컨테이너이자, 외부와의 소통 창구 ---
 class ImageWindow(QWidget):
     instant_generation_requested = pyqtSignal(object)
     load_prompt_to_main_ui = pyqtSignal(str)
+    send_to_inpaint_requested = pyqtSignal(object)
 
     def __init__(self, app_context, parent=None):
         super().__init__(parent)
@@ -618,18 +899,18 @@ class ImageWindow(QWidget):
 
         # 초기화 버튼
         clear_button = QPushButton(" 🗑️ ")
-        clear_button.setStyleSheet("""
-            QPushButton {
+        clear_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #d32f2f;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
-                font-size: 18px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(18)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #f44336;
-            }
+            }}
         """)
         clear_button.clicked.connect(self.clear_all)
         control_layout.addWidget(self.auto_save_checkbox)
@@ -670,7 +951,7 @@ class ImageWindow(QWidget):
                 border: 1px solid {DARK_COLORS['border']};
                 border-radius: 8px;
                 color: {DARK_COLORS['text_secondary']};
-                font-size: 14px;
+                font-size: {get_scaled_font_size(14)}px;
             }}
         """)
         self.main_image_label.setText("Generated Image")
@@ -686,7 +967,7 @@ class ImageWindow(QWidget):
             QLabel {{
                 color: {DARK_COLORS['text_primary']};
                 font-weight: bold;
-                font-size: 12px;
+                font-size: {get_scaled_font_size(12)}px;
                 padding: 2px 4px;
             }}
         """)
@@ -777,6 +1058,21 @@ class ImageWindow(QWidget):
         reroll_action.triggered.connect(self._reroll_current_prompt)
         menu.addAction(reroll_action)
 
+        # 🆕 메타데이터 관련 메뉴 추가
+        menu.addSeparator()
+        restore_params_action = QAction("⚙️ 생성 설정 복원", self)
+        # 생성 파라미터가 있는 경우에만 활성화
+        if (hasattr(self.current_history_item, 'generation_params') and 
+            self.current_history_item.generation_params):
+            restore_params_action.triggered.connect(self._restore_current_generation_params)
+        else:
+            restore_params_action.setEnabled(False)
+        menu.addAction(restore_params_action)
+        
+        show_metadata_action = QAction("🔍 전체 메타데이터 보기", self)
+        show_metadata_action.triggered.connect(self._show_current_metadata)
+        menu.addAction(show_metadata_action)
+
         # [수정] 파일 경로가 있을 때만 '파일 위치 열기' 옵션을 추가합니다.
         filepath = self.current_history_item.filepath
         if filepath and os.path.exists(filepath):
@@ -791,15 +1087,38 @@ class ImageWindow(QWidget):
         copy_webp_action.triggered.connect(lambda: self.copy_image_to_clipboard('WEBP'))
         menu.addAction(copy_png_action)
         menu.addAction(copy_webp_action)
+
+        menu.addSeparator()
+        send_to_inpaint_action = QAction("🎨 Send to Inpaint (NAI)", self)
+        send_to_inpaint_action.triggered.connect(self._emit_send_to_inpaint)
+        menu.addAction(send_to_inpaint_action)
         
         menu.exec(self.main_image_label.mapToGlobal(pos))
 
-    def _load_current_prompt(self):
-        """현재 표시 중인 이미지의 프롬프트를 불러옵니다."""
+    def _emit_send_to_inpaint(self):
+        """'Send to Inpaint' 요청 시그널을 발생시킵니다."""
         if self.current_history_item:
-            info = self.current_history_item.info_text
-            positive_prompt = info.split('Negative prompt:')[0].strip()
-            self.load_prompt_to_main_ui.emit(positive_prompt)
+            self.send_to_inpaint_requested.emit(self.current_history_item)
+
+    def _load_current_prompt(self):
+        """🆕 현재 표시 중인 이미지의 프롬프트를 불러옵니다 - main_prompt 우선 사용"""
+        if self.current_history_item:
+            # 🆕 prompt_context의 main_prompt를 우선적으로 사용 (\n\n 포함 원본)
+            if (hasattr(self.current_history_item, 'prompt_context') and 
+                self.current_history_item.prompt_context and 
+                'main_prompt' in self.current_history_item.prompt_context and
+                self.current_history_item.prompt_context['main_prompt']):
+                
+                prompt_to_load = self.current_history_item.prompt_context['main_prompt']
+                print(f"✅ 원본 프롬프트 불러오기 (main_prompt): {prompt_to_load[:50]}...")
+                self.load_prompt_to_main_ui.emit(prompt_to_load)
+                
+            else:
+                # 🔄 폴백: main_prompt가 없으면 기존 방식 사용
+                info = self.current_history_item.info_text
+                positive_prompt = info.split('Negative prompt:')[0].strip()
+                print(f"✅ 프롬프트 불러오기 (info_text 폴백): {positive_prompt[:50]}...")
+                self.load_prompt_to_main_ui.emit(positive_prompt)
 
     def _reroll_current_prompt(self):
         """현재 표시 중인 이미지의 프롬프트로 다시 생성을 요청합니다."""
@@ -819,6 +1138,20 @@ class ImageWindow(QWidget):
             # HistoryItemWidget의 save_comfyui_workflow 메소드를 재사용
             temp_widget = HistoryItemWidget(self.current_history_item)
             temp_widget.save_comfyui_workflow()
+
+    def _restore_current_generation_params(self):
+        """🆕 현재 이미지의 생성 파라미터를 복원합니다."""
+        if self.current_history_item:
+            # HistoryItemWidget의 restore_generation_params 메소드를 재사용
+            temp_widget = HistoryItemWidget(self.current_history_item, self)
+            temp_widget.restore_generation_params()
+
+    def _show_current_metadata(self):
+        """🆕 현재 이미지의 전체 메타데이터를 표시합니다."""
+        if self.current_history_item:
+            # HistoryItemWidget의 show_full_metadata 메소드를 재사용
+            temp_widget = HistoryItemWidget(self.current_history_item, self)
+            temp_widget.show_full_metadata()
 
     # 🆕 ComfyUI 메타데이터 처리 메소드들
     def strip_comfyui_metadata(self, image_object):
@@ -1172,7 +1505,7 @@ class ImageWindow(QWidget):
             placeholder.fill(QColor("gray"))
             return placeholder
 
-    def add_to_history(self, image: Image.Image, raw_bytes: bytes, info: str, source_row: pd.Series):
+    def add_to_history(self, image: Image.Image, raw_bytes: bytes, info: str, source_row: pd.Series, generation_result: dict = None):
         if not isinstance(image, Image.Image):
             return
 
@@ -1204,6 +1537,28 @@ class ImageWindow(QWidget):
             self.save_image_with_metadata(str(filepath), raw_bytes, info_text, as_webp=is_webp)
             self.save_counter += 1
 
+        # 🆕 확장된 메타데이터 수집
+        enhanced_metadata = {}
+        if generation_result:
+            import time
+            enhanced_metadata = {
+                'generation_params': generation_result.get('generation_params', {}),
+                'prompt_context': generation_result.get('prompt_context', {}),
+                'api_metadata': generation_result.get('api_metadata', {}),
+                'creation_timestamp': generation_result.get('creation_timestamp', time.strftime('%Y-%m-%d %H:%M:%S')),
+                'backend_type': generation_result.get('backend_type', 'NAI')
+            }
+        else:
+            # 기본값 설정 (이전 버전과의 호환성)
+            import time
+            enhanced_metadata = {
+                'generation_params': {},
+                'prompt_context': {},
+                'api_metadata': {},
+                'creation_timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'backend_type': 'NAI'
+            }
+
         history_item = HistoryItem(
             image=image, 
             thumbnail=thumbnail_pixmap,
@@ -1211,7 +1566,9 @@ class ImageWindow(QWidget):
             info_text=info_text,  # 새로 추출한 텍스트로 저장
             source_row=source_row, 
             filepath=str(filepath) if filepath else None,
-            comfyui_workflow=comfyui_workflow
+            comfyui_workflow=comfyui_workflow,
+            # 🆕 확장된 메타데이터 필드들
+            **enhanced_metadata
         )
 
         if self.image_history_window:

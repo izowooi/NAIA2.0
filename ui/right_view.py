@@ -10,6 +10,7 @@ import pandas as pd
 from ui.theme import DARK_STYLES, DARK_COLORS
 from ui.detached_window import DetachedWindow
 from core.tab_controller import TabController
+from ui.scaling_manager import get_scaled_font_size
 
 class EnhancedTabWidget(QTabWidget):
     """우클릭 컨텍스트 메뉴가 있는 향상된 탭 위젯"""
@@ -60,6 +61,7 @@ class RightView(QWidget):
     instant_generation_requested = pyqtSignal(dict)
     load_prompt_to_main_ui = pyqtSignal(str)
     generate_with_image_requested = pyqtSignal(dict)
+    send_to_inpaint_requested = pyqtSignal(object)
 
     def __init__(self, app_context, parent=None):
         super().__init__(parent)
@@ -88,6 +90,8 @@ class RightView(QWidget):
                 image_viewer_module.instant_generation_requested.connect(self.instant_generation_requested)
             if hasattr(image_viewer_module, 'load_prompt_to_main_ui'):
                 image_viewer_module.load_prompt_to_main_ui.connect(self.load_prompt_to_main_ui)
+            if hasattr(image_viewer_module.image_window_widget, 'send_to_inpaint_requested'):
+                image_viewer_module.image_window_widget.send_to_inpaint_requested.connect(self.send_to_inpaint_requested)
         else:
             print("⚠️ ImageViewerModule 인스턴스를 찾을 수 없어 시그널 연결에 실패했습니다.")
 
@@ -184,11 +188,11 @@ class RightView(QWidget):
         
         icon_label = QLabel("🔗")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet(f"font-size: 48px; color: {DARK_COLORS['text_secondary']};")
+        icon_label.setStyleSheet(f"font-size: {get_scaled_font_size(48)}px; color: {DARK_COLORS['text_secondary']};")
         
         message_label = QLabel(f"'{tab_title}'이(가)\n외부 창에서 열려있습니다")
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        message_label.setStyleSheet(f"font-size: 16px; color: {DARK_COLORS['text_secondary']};")
+        message_label.setStyleSheet(f"font-size: {get_scaled_font_size(16)}px; color: {DARK_COLORS['text_secondary']};")
         
         return_button = QPushButton("창 닫고 여기로 복귀")
         return_button.setStyleSheet(DARK_STYLES['secondary_button'])
@@ -233,11 +237,11 @@ class RightView(QWidget):
         if instance and hasattr(instance, 'image_window_widget'):
             instance.image_window_widget.update_info(text)
 
-    def add_to_history(self, image, raw_bytes: bytes, info: str, source_row: pd.Series):
-        """히스토리 추가"""
+    def add_to_history(self, image, raw_bytes: bytes, info: str, source_row: pd.Series, generation_result: dict = None):
+        """히스토리 추가 - 🆕 확장된 메타데이터 지원"""
         instance = self._get_image_viewer_instance()
         if instance and hasattr(instance, 'image_window_widget'):
-            instance.image_window_widget.add_to_history(image, raw_bytes, info, source_row)
+            instance.image_window_widget.add_to_history(image, raw_bytes, info, source_row, generation_result)
             
     # # === 동적 탭 생성을 위한 메서드들 ===
     # def add_api_management_tab(self):

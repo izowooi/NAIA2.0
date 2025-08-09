@@ -1,3 +1,10 @@
+"""
+동적 UI 테마 시스템
+스케일링 매니저를 활용한 반응형 UI 지원
+"""
+
+from ui.scaling_manager import get_scaled_font_size, get_scaled_size
+
 # 개선된 어두운 테마 색상 팔레트
 DARK_COLORS = {
     'bg_primary': '#212121',      # 메인 배경 (매우 어두운 회색)
@@ -18,580 +25,639 @@ DARK_COLORS = {
     'error': '#F44336',           # 오류 색상
 }
 
-# 어두운 테마 스타일시트
-DARK_STYLES = {
-    'main_container': f"""
-        QWidget {{
-            background-color: {DARK_COLORS['bg_primary']};
-            color: {DARK_COLORS['text_primary']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 21px;
-            font-weight: 400;
-        }}
-    """,
-    
-    'collapsible_box': f"""
-        QWidget {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 6px;
-            margin: 2px 4px;
-        }}
-        QToolButton {{
-            background-color: transparent;
-            border: none;
-            border-radius: 4px;
-            padding: 8px 12px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 600;
-            font-size: 21px;
-            color: {DARK_COLORS['text_primary']};
-            text-align: left;
-        }}
-        QToolButton:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-    """,
-    
-    'compact_card': f"""
-        QFrame {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 8px;
-            margin: 2px 4px;
-        }}
-    """,
-    
-    'primary_button': f"""
-        QPushButton {{
-            background-color: {DARK_COLORS['accent_blue']};
-            border: none;
-            border-radius: 4px;
-            padding: 10px 20px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 600;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 21px;
-        }}
-        QPushButton:hover {{
-            background-color: {DARK_COLORS['accent_blue_hover']};
-        }}
-        QPushButton:pressed {{
-            background-color: #0D47A1;
-        }}
-    """,
-    
-    'secondary_button': f"""
-        QPushButton {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 500;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 20px;
-        }}
-        QPushButton:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-            border: 1px solid {DARK_COLORS['border_light']};
-        }}
-        QPushButton:pressed {{
-            background-color: {DARK_COLORS['bg_pressed']};
-        }}
-    """,
-    
-    'compact_textedit': f"""
-        QTextEdit {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 8px;
-            color: {DARK_COLORS['text_primary']};
-            selection-background-color: {DARK_COLORS['accent_blue']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 22px;
-        }}
-        QTextEdit:focus {{
-            border: 2px solid {DARK_COLORS['accent_blue']};
-        }}
-    """,
-    
-    'compact_lineedit': f"""
-        QLineEdit {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 8px 12px;
-            color: {DARK_COLORS['text_primary']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 19px;
-        }}
-        QLineEdit:focus {{
-            border: 2px solid {DARK_COLORS['accent_blue']};
-        }}
-    """,
-    
-    'dark_checkbox': f"""
-        QCheckBox {{
-            background-color: transparent;
-            spacing: 8px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 19px;
-            color: {DARK_COLORS['text_primary']};
-        }}
-        QCheckBox::indicator {{
-            width: 18px;
-            height: 18px;
-            border: 1px solid {DARK_COLORS['border_light']};
-            border-radius: 3px;
-            background-color: {DARK_COLORS['bg_secondary']};
-        }}
-        QCheckBox::indicator:checked {{
-            background-color: {DARK_COLORS['accent_blue']};
-            border: 1px solid {DARK_COLORS['accent_blue']};
-        }}
-        QCheckBox::indicator:hover {{
-            border: 1px solid {DARK_COLORS['accent_blue_light']};
-        }}
-    """,
-    
-    'dark_tabs': f"""
-        QTabWidget::pane {{
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            background-color: {DARK_COLORS['bg_tertiary']};
-            margin-top: 2px;
-        }}
-        QTabBar::tab {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-bottom: none;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
-            padding: 8px 16px;
-            margin-right: 1px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 500;
-            color: {DARK_COLORS['text_secondary']};
-            font-size: 19px;
-        }}
-        QTabBar::tab:selected {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            color: {DARK_COLORS['text_primary']};
-            border-bottom: 2px solid {DARK_COLORS['accent_blue']};
-        }}
-        QTabBar::tab:hover:!selected {{
-            background-color: {DARK_COLORS['bg_hover']};
-            color: {DARK_COLORS['text_primary']};
-        }}
-    """,
-    
-    'compact_combobox': f"""
-        QComboBox {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 6px 12px;
-            color: {DARK_COLORS['text_primary']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 19px;
-        }}
-        QComboBox:hover {{
-            border: 1px solid {DARK_COLORS['border_light']};
-        }}
-        QComboBox::drop-down {{
-            border: none;
-        }}
-        QComboBox::down-arrow {{
-            width: 10px;
-            height: 10px;
-        }}
-    """,
-    
-    'label_style': f"""
-        QLabel {{
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 19px;
-        }}
-    """,
-    
-    # 새로 추가: 투명 배경 스타일
-    'transparent_frame': f"""
-        QFrame {{
-            background-color: transparent;
-            border: none;
-        }}
-    """,
-    
-    # 새로 추가: 확장 토글 버튼 스타일
-    'expand_toggle_button': f"""
-        QPushButton {{
-            background-color: {DARK_COLORS['accent_blue']};
-            border: none;
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 600;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 16px;
-        }}
-        QPushButton:hover {{
-            background-color: {DARK_COLORS['accent_blue_hover']};
-        }}
-        QPushButton:pressed {{
-            background-color: #0D47A1;
-        }}
-    """,
-    # theme.py의 DARK_STYLES 딕셔너리에 추가할 스타일들
 
-    'compact_button': f"""
-        QPushButton {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 6px 12px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 500;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 16px;
-            min-height: 20px;
-        }}
-        QPushButton:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-            border: 1px solid {DARK_COLORS['border_light']};
-        }}
-        QPushButton:pressed {{
-            background-color: {DARK_COLORS['bg_pressed']};
-        }}
-        QPushButton:disabled {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            color: {DARK_COLORS['text_disabled']};
-            border: 1px solid {DARK_COLORS['border']};
-        }}
-    """,
-
-    'compact_combobox': f"""
-        QComboBox {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 6px 12px;
-            color: {DARK_COLORS['text_primary']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 16px;
-            min-height: 20px;
-        }}
-        QComboBox:hover {{
-            border: 1px solid {DARK_COLORS['border_light']};
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-        QComboBox:focus {{
-            border: 2px solid {DARK_COLORS['accent_blue']};
-        }}
-        QComboBox::drop-down {{
-            border: none;
-            width: 20px;
-            padding-right: 5px;
-        }}
-        QComboBox::down-arrow {{
-            image: none;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 5px solid {DARK_COLORS['text_secondary']};
-            width: 0px;
-            height: 0px;
-        }}
-        QComboBox::down-arrow:hover {{
-            border-top: 5px solid {DARK_COLORS['text_primary']};
-        }}
-        QComboBox QAbstractItemView {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            color: {DARK_COLORS['text_primary']};
-            selection-background-color: {DARK_COLORS['accent_blue']};
-            selection-color: {DARK_COLORS['text_primary']};
-            font-size: 16px;
-            padding: 4px;
-        }}
-        QComboBox QAbstractItemView::item {{
-            padding: 6px 12px;
-            border: none;
-        }}
-        QComboBox QAbstractItemView::item:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-    """,
-
-    'compact_spinbox': f"""
-        QSpinBox, QDoubleSpinBox {{
-            background-color: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 6px 8px;
-            color: {DARK_COLORS['text_primary']};
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 16px;
-            min-height: 20px;
-        }}
-        QSpinBox:hover, QDoubleSpinBox:hover {{
-            border: 1px solid {DARK_COLORS['border_light']};
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-        QSpinBox:focus, QDoubleSpinBox:focus {{
-            border: 2px solid {DARK_COLORS['accent_blue']};
-        }}
-        QSpinBox::up-button, QDoubleSpinBox::up-button {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: none;
-            border-left: 1px solid {DARK_COLORS['border']};
-            border-top-right-radius: 3px;
-            width: 16px;
-            padding: 2px;
-        }}
-        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-            image: none;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-bottom: 4px solid {DARK_COLORS['text_secondary']};
-            width: 0px;
-            height: 0px;
-        }}
-        QSpinBox::up-arrow:hover, QDoubleSpinBox::up-arrow:hover {{
-            border-bottom: 4px solid {DARK_COLORS['text_primary']};
-        }}
-        QSpinBox::down-button, QDoubleSpinBox::down-button {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: none;
-            border-left: 1px solid {DARK_COLORS['border']};
-            border-bottom-right-radius: 3px;
-            width: 16px;
-            padding: 2px;
-        }}
-        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-            background-color: {DARK_COLORS['bg_hover']};
-        }}
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-            image: none;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 4px solid {DARK_COLORS['text_secondary']};
-            width: 0px;
-            height: 0px;
-        }}
-        QSpinBox::down-arrow:hover, QDoubleSpinBox::down-arrow:hover {{
-            border-top: 4px solid {DARK_COLORS['text_primary']};
-        }}
-    """,
-
-    'compact_slider': f"""
-        QSlider {{
-            background: transparent;
-            outline: none;
-        }}
-        QSlider::groove:horizontal {{
-            background: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            height: 8px;
-            border-radius: 4px;
-        }}
-        QSlider::handle:horizontal {{
-            background: {DARK_COLORS['accent_blue']};
-            border: 1px solid {DARK_COLORS['border_light']};
-            width: 18px;
-            height: 18px;
-            margin: -6px 0;
-            border-radius: 9px;
-        }}
-        QSlider::handle:horizontal:hover {{
-            background: {DARK_COLORS['accent_blue_hover']};
-            border: 2px solid {DARK_COLORS['accent_blue_light']};
-        }}
-        QSlider::handle:horizontal:pressed {{
-            background: {DARK_COLORS['accent_blue_hover']};
-        }}
-        QSlider::sub-page:horizontal {{
-            background: {DARK_COLORS['accent_blue']};
-            border: 1px solid {DARK_COLORS['border']};
-            height: 8px;
-            border-radius: 4px;
-        }}
-        QSlider::add-page:horizontal {{
-            background: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            height: 8px;
-            border-radius: 4px;
-        }}
-        /* 수직 슬라이더 스타일 */
-        QSlider::groove:vertical {{
-            background: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            width: 8px;
-            border-radius: 4px;
-        }}
-        QSlider::handle:vertical {{
-            background: {DARK_COLORS['accent_blue']};
-            border: 1px solid {DARK_COLORS['border_light']};
-            width: 18px;
-            height: 18px;
-            margin: 0 -6px;
-            border-radius: 9px;
-        }}
-        QSlider::handle:vertical:hover {{
-            background: {DARK_COLORS['accent_blue_hover']};
-            border: 2px solid {DARK_COLORS['accent_blue_light']};
-        }}
-        QSlider::sub-page:vertical {{
-            background: {DARK_COLORS['bg_secondary']};
-            border: 1px solid {DARK_COLORS['border']};
-            width: 8px;
-            border-radius: 4px;
-        }}
-        QSlider::add-page:vertical {{
-            background: {DARK_COLORS['accent_blue']};
-            border: 1px solid {DARK_COLORS['border']};
-            width: 8px;
-            border-radius: 4px;
-        }}
-    """,
-    'toggle_button': f"""
-        QPushButton {{
-            background-color: {DARK_COLORS['bg_tertiary']};
-            border: 1px solid {DARK_COLORS['border']};
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-weight: 500;
-            color: {DARK_COLORS['text_primary']};
-            font-size: 18px;
-        }}
-        QPushButton:hover:!checked {{
-            background-color: {DARK_COLORS['bg_hover']};
-            border: 1px solid {DARK_COLORS['border_light']};
-        }}
-        QPushButton:checked {{
-            background-color: {DARK_COLORS['accent_blue_hover']}; /* 짙은 파란색으로 변경 */
-            border: 1px solid {DARK_COLORS['accent_blue']};
-            color: {DARK_COLORS['text_primary']};
-            font-weight: 600;
-        }}
-        QPushButton:disabled {{
-            background-color: #404040;
-            color: #888888;
-        }}
-    """,
-    'dark_text_edit' : f"""
-    /* QTextEdit의 기본 스타일은 유지 (테두리, 패딩 등) */
-    QTextEdit {{
-        background-color: transparent; /* 전체 배경은 투명하게 */
-        border: 1px solid {DARK_COLORS['border']};
-        border-radius: 4px;
-        padding: 8px;
-        color: {DARK_COLORS['text_primary']};
-        font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-        font-size: 22px;
-    }}
+def generate_dark_styles():
+    """현재 스케일링 팩터에 맞는 동적 스타일시트 생성"""
     
-    /* 실제 텍스트가 보이는 내부 영역의 배경색만 지정 */
-    QTextEdit QAbstractScrollArea {{
-        background-color: {DARK_COLORS['bg_primary']};
-        border: none; /* 내부 영역의 테두리는 제거 */
-    }}
-"""
-}
+    # 기본 폰트 크기 정의 (QHD 기준)
+    BASE_FONT_SIZES = {
+        'main': 21,
+        'title': 21, 
+        'button': 18,
+        'input': 22,
+        'input_small': 19,
+        'label': 19,
+        'label_small': 16,
+        'tab': 19,
+        'combobox': 19,
+        'status': 18,
+        'compact': 16,
+        'tiny': 14,
+        'large': 24
+    }
+    
+    # 기본 크기 정의 (QHD 기준)
+    BASE_SIZES = {
+        'padding_small': 4,
+        'padding_medium': 8,
+        'padding_large': 12,
+        'margin_small': 2,
+        'margin_medium': 4,
+        'border_radius': 4,
+        'border_radius_large': 6,
+        'button_height': 16,
+        'input_height': 20,
+        'checkbox_size': 18,
+        'icon_small': 16,
+        'icon_medium': 20,
+        'icon_large': 24,
+        'scrollbar_width': 8,
+        'slider_handle': 18
+    }
+    
+    # 스케일 적용된 값들 계산
+    fonts = {key: get_scaled_font_size(size) for key, size in BASE_FONT_SIZES.items()}
+    sizes = {key: get_scaled_size(size) for key, size in BASE_SIZES.items()}
+    
+    return {
+        'main_container': f"""
+            QWidget {{
+                background-color: {DARK_COLORS['bg_primary']};
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['main']}px;
+                font-weight: 400;
+            }}
+        """,
+        
+        'collapsible_box': f"""
+            QWidget {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius_large']}px;
+                margin: {sizes['margin_small']}px {sizes['margin_medium']}px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 600;
+                font-size: {fonts['title']}px;
+                color: {DARK_COLORS['text_primary']};
+                text-align: left;
+            }}
+            QToolButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+        """,
+        
+        'compact_card': f"""
+            QFrame {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px;
+                margin: {sizes['margin_small']}px {sizes['margin_medium']}px;
+            }}
+        """,
+        
+        'primary_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['accent_blue']};
+                border: none;
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] * 2}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['button']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['accent_blue_hover']};
+            }}
+            QPushButton:pressed {{
+                background-color: #0D47A1;
+            }}
+        """,
+        
+        'secondary_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] + 4}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['button']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QPushButton:pressed {{
+                background-color: {DARK_COLORS['bg_pressed']};
+            }}
+        """,
+        
+        'compact_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_small']}px {sizes['padding_large']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['compact']}px;
+                min-height: {sizes['button_height']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QPushButton:pressed {{
+                background-color: {DARK_COLORS['bg_pressed']};
+            }}
+            QPushButton:disabled {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                color: {DARK_COLORS['text_disabled']};
+                border: 1px solid {DARK_COLORS['border']};
+            }}
+        """,
+        
+        'toggle_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] + 4}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['status']}px;
+            }}
+            QPushButton:hover:!checked {{
+                background-color: {DARK_COLORS['bg_hover']};
+                border: 1px solid {DARK_COLORS['border_light']};
+            }}
+            QPushButton:checked {{
+                background-color: {DARK_COLORS['accent_blue_hover']};
+                border: 1px solid {DARK_COLORS['accent_blue']};
+                color: {DARK_COLORS['text_primary']};
+                font-weight: 600;
+            }}
+            QPushButton:disabled {{
+                background-color: #404040;
+                color: #888888;
+            }}
+        """,
+        
+        'expand_toggle_button': f"""
+            QPushButton {{
+                background-color: {DARK_COLORS['accent_blue']};
+                border: none;
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large'] + 4}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 600;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['compact']}px;
+            }}
+            QPushButton:hover {{
+                background-color: {DARK_COLORS['accent_blue_hover']};
+            }}
+            QPushButton:pressed {{
+                background-color: #0D47A1;
+            }}
+        """,
+        
+        'compact_textedit': f"""
+            QTextEdit {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px;
+                color: {DARK_COLORS['text_primary']};
+                selection-background-color: {DARK_COLORS['accent_blue']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['input']}px;
+            }}
+            QTextEdit:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+        """,
+        
+        'dark_text_edit': f"""
+            QTextEdit {{
+                background-color: transparent;
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['input']}px;
+            }}
+            QTextEdit QAbstractScrollArea {{
+                background-color: {DARK_COLORS['bg_primary']};
+                border: none;
+            }}
+        """,
+        
+        'compact_lineedit': f"""
+            QLineEdit {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['input_small']}px;
+                min-height: {sizes['input_height']}px;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+        """,
+        
+        'dark_checkbox': f"""
+            QCheckBox {{
+                background-color: transparent;
+                spacing: {sizes['padding_medium']}px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['label']}px;
+                color: {DARK_COLORS['text_primary']};
+            }}
+            QCheckBox::indicator {{
+                width: {sizes['checkbox_size']}px;
+                height: {sizes['checkbox_size']}px;
+                border: 1px solid {DARK_COLORS['border_light']};
+                border-radius: 3px;
+                background-color: {DARK_COLORS['bg_secondary']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['accent_blue']};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 1px solid {DARK_COLORS['accent_blue_light']};
+            }}
+        """,
+        
+        'dark_tabs': f"""
+            QTabWidget::pane {{
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                background-color: {DARK_COLORS['bg_tertiary']};
+                margin-top: 2px;
+            }}
+            QTabBar::tab {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-bottom: none;
+                border-top-left-radius: {sizes['border_radius']}px;
+                border-top-right-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_medium']}px {sizes['padding_large']}px;
+                margin-right: 1px;
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-weight: 500;
+                color: {DARK_COLORS['text_secondary']};
+                font-size: {fonts['tab']}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                color: {DARK_COLORS['text_primary']};
+                border-bottom: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {DARK_COLORS['bg_hover']};
+                color: {DARK_COLORS['text_primary']};
+            }}
+        """,
+        
+        'compact_combobox': f"""
+            QComboBox {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_small']}px {sizes['padding_large']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['combobox']}px;
+                min-height: {sizes['input_height']}px;
+            }}
+            QComboBox:hover {{
+                border: 1px solid {DARK_COLORS['border_light']};
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+            QComboBox:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: {sizes['icon_medium']}px;
+                padding-right: 5px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid {DARK_COLORS['text_secondary']};
+                width: 0px;
+                height: 0px;
+            }}
+            QComboBox::down-arrow:hover {{
+                border-top: 5px solid {DARK_COLORS['text_primary']};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                color: {DARK_COLORS['text_primary']};
+                selection-background-color: {DARK_COLORS['accent_blue']};
+                selection-color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['combobox']}px;
+                padding: {sizes['padding_small']}px;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: {sizes['padding_small']}px {sizes['padding_large']}px;
+                border: none;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+        """,
+        
+        'compact_spinbox': f"""
+            QSpinBox, QDoubleSpinBox {{
+                background-color: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                border-radius: {sizes['border_radius']}px;
+                padding: {sizes['padding_small']}px {sizes['padding_medium']}px;
+                color: {DARK_COLORS['text_primary']};
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                font-size: {fonts['compact']}px;
+                min-height: {sizes['icon_medium']}px;
+            }}
+            QSpinBox:hover, QDoubleSpinBox:hover {{
+                border: 1px solid {DARK_COLORS['border_light']};
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+            QSpinBox:focus, QDoubleSpinBox:focus {{
+                border: 2px solid {DARK_COLORS['accent_blue']};
+            }}
+            QSpinBox::up-button, QDoubleSpinBox::up-button {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: none;
+                border-left: 1px solid {DARK_COLORS['border']};
+                border-top-right-radius: 3px;
+                width: {sizes['icon_small']}px;
+                padding: 2px;
+            }}
+            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-bottom: 4px solid {DARK_COLORS['text_secondary']};
+                width: 0px;
+                height: 0px;
+            }}
+            QSpinBox::up-arrow:hover, QDoubleSpinBox::up-arrow:hover {{
+                border-bottom: 4px solid {DARK_COLORS['text_primary']};
+            }}
+            QSpinBox::down-button, QDoubleSpinBox::down-button {{
+                background-color: {DARK_COLORS['bg_tertiary']};
+                border: none;
+                border-left: 1px solid {DARK_COLORS['border']};
+                border-bottom-right-radius: 3px;
+                width: {sizes['icon_small']}px;
+                padding: 2px;
+            }}
+            QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+                background-color: {DARK_COLORS['bg_hover']};
+            }}
+            QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {DARK_COLORS['text_secondary']};
+                width: 0px;
+                height: 0px;
+            }}
+            QSpinBox::down-arrow:hover, QDoubleSpinBox::down-arrow:hover {{
+                border-top: 4px solid {DARK_COLORS['text_primary']};
+            }}
+        """,
+        
+        'compact_slider': f"""
+            QSlider {{
+                background: transparent;
+                outline: none;
+            }}
+            QSlider::groove:horizontal {{
+                background: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                height: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['border_light']};
+                width: {sizes['slider_handle']}px;
+                height: {sizes['slider_handle']}px;
+                margin: -{sizes['padding_small'] + 2}px 0;
+                border-radius: 9px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: {DARK_COLORS['accent_blue_hover']};
+                border: 2px solid {DARK_COLORS['accent_blue_light']};
+            }}
+            QSlider::handle:horizontal:pressed {{
+                background: {DARK_COLORS['accent_blue_hover']};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['border']};
+                height: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+            QSlider::add-page:horizontal {{
+                background: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                height: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+            QSlider::groove:vertical {{
+                background: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                width: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+            QSlider::handle:vertical {{
+                background: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['border_light']};
+                width: {sizes['slider_handle']}px;
+                height: {sizes['slider_handle']}px;
+                margin: 0 -{sizes['padding_small'] + 2}px;
+                border-radius: 9px;
+            }}
+            QSlider::handle:vertical:hover {{
+                background: {DARK_COLORS['accent_blue_hover']};
+                border: 2px solid {DARK_COLORS['accent_blue_light']};
+            }}
+            QSlider::sub-page:vertical {{
+                background: {DARK_COLORS['bg_secondary']};
+                border: 1px solid {DARK_COLORS['border']};
+                width: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+            QSlider::add-page:vertical {{
+                background: {DARK_COLORS['accent_blue']};
+                border: 1px solid {DARK_COLORS['border']};
+                width: {sizes['padding_medium']}px;
+                border-radius: {sizes['border_radius']}px;
+            }}
+        """,
+        
+        'transparent_frame': f"""
+            QFrame {{
+                background-color: transparent;
+                border: none;
+            }}
+        """,
+        
+        'label_style': f"""
+            QLabel {{
+                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+                color: {DARK_COLORS['text_primary']};
+                font-size: {fonts['label']}px;
+            }}
+        """,
+    }
 
-CUSTOM = {
-    "middle_scroll_area" : f"""
+
+def get_dynamic_styles():
+    """현재 스케일링에 맞는 동적 스타일 생성"""
+    return generate_dark_styles()
+
+
+def get_legacy_dark_styles():
+    """하위 호환성을 위한 동적 DARK_STYLES 생성"""
+    return generate_dark_styles()
+
+
+# 하위 호환성을 위한 동적 DARK_STYLES
+# 스케일링 매니저는 항상 사용 가능하므로 간단히 호출
+DARK_STYLES = get_legacy_dark_styles()
+
+
+# 커스텀 스타일 딕셔너리 (동적 스케일링 적용)
+def get_custom_styles():
+    """커스텀 스타일 딕셔너리 생성 (동적 스케일링 적용)"""
+    fonts = {
+        'main': get_scaled_font_size(21),
+        'status': get_scaled_font_size(18),
+        'title': get_scaled_font_size(21),
+        'label': get_scaled_font_size(19),
+        'compact': get_scaled_font_size(16),
+        'tiny': get_scaled_font_size(14),
+    }
+    
+    sizes = {
+        'padding_medium': get_scaled_size(8),
+        'border_radius': get_scaled_size(4),
+        'scrollbar_width': get_scaled_size(8),
+    }
+    
+    return {
+        "middle_scroll_area": f"""
             QScrollArea {{
                 background-color: {DARK_COLORS['bg_primary']};
                 border: 1px solid {DARK_COLORS['border']};
-                border-radius: 4px;
+                border-radius: {sizes['border_radius']}px;
             }}
             QScrollBar:vertical {{
                 background-color: {DARK_COLORS['bg_secondary']};
-                width: 8px;
-                border-radius: 4px;
+                width: {sizes['scrollbar_width']}px;
+                border-radius: {sizes['border_radius']}px;
             }}
             QScrollBar::handle:vertical {{
                 background-color: {DARK_COLORS['border_light']};
-                border-radius: 4px;
+                border-radius: {sizes['border_radius']}px;
                 min-height: 20px;
             }}
             QScrollBar::handle:vertical:hover {{
                 background-color: {DARK_COLORS['accent_blue_light']};
             }}
         """,
-    "main" : f"""
+        
+        "main": f"""
             QMainWindow {{
                 background-color: {DARK_COLORS['bg_primary']};
                 color: {DARK_COLORS['text_primary']};
                 font-family: 'Pretendard';
             }}
         """,
-    "top_scroll_area" : f"""
+        
+        "top_scroll_area": f"""
             QScrollArea {{
                 background-color: {DARK_COLORS['bg_primary']};
                 border: none;
             }}
             QScrollBar:vertical {{
                 background-color: {DARK_COLORS['bg_secondary']};
-                width: 8px;
-                border-radius: 4px;
+                width: {sizes['scrollbar_width']}px;
+                border-radius: {sizes['border_radius']}px;
             }}
             QScrollBar::handle:vertical {{
                 background-color: {DARK_COLORS['border_light']};
-                border-radius: 4px;
+                border-radius: {sizes['border_radius']}px;
                 min-height: 20px;
             }}
             QScrollBar::handle:vertical:hover {{
                 background-color: {DARK_COLORS['accent_blue_light']};
             }}
         """,
-    "toggle_active_style" : f"""
+        
+        "toggle_active_style": f"""
             QPushButton {{
                 background-color: {DARK_COLORS['accent_blue']};
                 border: none;
-                border-radius: 4px;
+                border-radius: {sizes['border_radius']}px;
                 color: {DARK_COLORS['text_primary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-weight: 600;
-                font-size: 18px;
+                font-size: {fonts['status']}px;
             }}
             QPushButton:hover {{
                 background-color: {DARK_COLORS['accent_blue_hover']};
             }}
         """,
-    "toggle_inactive_style" : f"""
+        
+        "toggle_inactive_style": f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_tertiary']};
                 border: 1px solid {DARK_COLORS['border']};
-                border-radius: 4px;
+                border-radius: {sizes['border_radius']}px;
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-weight: 500;
-                font-size: 18px;
+                font-size: {fonts['status']}px;
             }}
             QPushButton:hover {{
                 background-color: {DARK_COLORS['bg_hover']};
                 color: {DARK_COLORS['text_primary']};
             }}
         """,
-    "status_bar" : f"""
+        
+        "status_bar": f"""
             QStatusBar {{
                 background-color: {DARK_COLORS['bg_secondary']};
                 border-top: 1px solid {DARK_COLORS['border']};
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 18px;
+                font-size: {fonts['status']}px;
             }}
         """,
-    "main_splitter" : f"""
+        
+        "main_splitter": f"""
             QSplitter::handle {{
                 background-color: {DARK_COLORS['border']};
                 height: 3px;
@@ -602,63 +668,39 @@ CUSTOM = {
                 background-color: {DARK_COLORS['accent_blue_light']};
             }}
         """,
-    "params_title" : f"""
+        
+        "params_title": f"""
             QLabel {{
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 color: {DARK_COLORS['text_primary']};
-                font-size: 21px;
+                font-size: {fonts['title']}px;
                 font-weight: 600;
-                margin-bottom: 8px;
+                margin-bottom: {sizes['padding_medium']}px;
                 background-color: {DARK_COLORS['bg_primary']};
             }}
         """,
-    "param_label_style" : f"""
+        
+        "param_label_style": f"""
             QLabel {{
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 color: {DARK_COLORS['text_primary']};
-                font-size: 19px;
+                font-size: {fonts['label']}px;
                 background-color: {DARK_COLORS['bg_primary']};
             }}
         """,
-    "naid_options_label" : f"""
+        
+        "naid_options_label": f"""
             QLabel {{
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 color: {DARK_COLORS['text_primary']};
-                font-size: 19px;
+                font-size: {fonts['label']}px;
                 font-weight: 500;
                 background-color: {DARK_COLORS['bg_primary']};
             }}
         """,
+    }
 
-        "params_title": f"""
-        QLabel {{
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            color: {DARK_COLORS['text_primary']};
-            padding: 4px 0px;
-            border-bottom: 1px solid {DARK_COLORS['border']};
-            margin-bottom: 8px;
-        }}
-    """,
-    
-    "param_label_style": f"""
-        QLabel {{
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 14px;
-            font-weight: 500;
-            color: {DARK_COLORS['text_primary']};
-            padding: 2px 4px;
-        }}
-    """,
-    
-    "naid_options_label": f"""
-        QLabel {{
-            font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            color: {DARK_COLORS['text_primary']};
-            padding: 4px 8px;
-        }}
-    """,
-}
+
+# 하위 호환성을 위한 CUSTOM 딕셔너리
+# 스케일링 매니저는 항상 사용 가능하므로 간단히 호출
+CUSTOM = get_custom_styles()

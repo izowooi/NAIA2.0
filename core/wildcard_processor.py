@@ -1,5 +1,3 @@
-# core/wildcard_processor.py
-
 import random
 import re
 from typing import List
@@ -33,7 +31,7 @@ class WildcardProcessor:
                 chosen_option = random.choice(options).strip()
                 return self._expand_recursive(chosen_option, context, depth + 1)
 
-            # 파일 기반 와일드카드 처리
+            # 파일 기반 와일드카드 처리 - <태그명> 형태는 기존 로직 유지
             line = self._get_wildcard_line(wildcard_name, context)
             if line is None: return [tag]
             
@@ -57,11 +55,30 @@ class WildcardProcessor:
         # 복합 와일드카드 처리 (__...__)
         if '__' in tag:
             parts = re.split(r'(__.*?__)', tag)
-            result_parts = [
-                ', '.join(self._expand_recursive(f"<{p[2:-2]}>", context, depth + 1)) if p.startswith('__') else p
-                for p in parts if p
-            ]
-            return [', '.join(result_parts)]
+            result_parts = []
+            
+            for part in parts:
+                if not part:
+                    continue
+                    
+                if part.startswith('__') and part.endswith('__'):
+                    # __태그명__ 형태: global_append_tags 없이 현재 위치에 일괄 나열
+                    wildcard_name = part[2:-2]
+                    line = self._get_wildcard_line(wildcard_name, context)
+                    if line is not None:
+                        expanded_parts = self._expand_recursive(line, context, depth + 1)
+                        # 모든 결과를 현재 위치에 콤마로 연결
+                        all_tags = []
+                        for expanded_part in expanded_parts:
+                            sub_tags = [t.strip() for t in expanded_part.split(',')]
+                            all_tags.extend(sub_tags)
+                        result_parts.append(', '.join(all_tags))
+                    else:
+                        result_parts.append(part)  # 확장 실패시 원본 유지
+                else:
+                    result_parts.append(part)
+            
+            return [''.join(result_parts)]
 
         return [tag]
 
@@ -96,15 +113,23 @@ class WildcardProcessor:
             context.wildcard_state[wildcard_name] = {'current': counter % total_lines + 1, 'total': total_lines}
 
         elif is_observer:
+            # 🔧 [수정] Master/Slave 의존성 로직 개선
             master_counter = context.sequential_counters.get(master_name, 0)
-            # master가 한 번도 호출되지 않았다면, slave도 첫 번째를 반환
-            # master 카운터는 이미 다음 호출을 위해 1 증가된 상태일 수 있으므로 -1
-            current_master_index = (master_counter - 1) if master_counter > 0 else 0
             
-            slave_index = current_master_index % total_lines
+            # Master 와일드카드의 길이를 가져와서 사이클 계산
+            master_lines = self.wildcard_manager.wildcard_dict_tree.get(master_name, [])
+            master_total = len(master_lines) if master_lines else 1
+            
+            # Master가 완전한 사이클을 몇 번 완료했는지 계산
+            # master_counter는 이미 1 증가된 상태이므로 -1 후 계산
+            completed_master_cycles = (master_counter - 1) // master_total if master_counter > 0 else 0
+            
+            # Slave는 master의 완전한 사이클 완료 횟수에 따라 진행
+            slave_index = completed_master_cycles % total_lines
             chosen_line = lines[slave_index]
+            
             # [상태 관찰] 종속 와일드카드 상태 기록
-            context.wildcard_state[wildcard_name] = {'current': slave_index + 1, 'total': total_lines}
+            context.wildcard_state[wildcard_name] = {'current': slave_index + 1, 'total': total_lines, 'master_cycles': completed_master_cycles}
             
         else: # 일반 무작위 모드
             chosen_line = random.choice(lines)

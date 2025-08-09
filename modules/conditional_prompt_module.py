@@ -6,6 +6,8 @@ from PyQt6.QtCore import Qt
 from interfaces.base_module import BaseMiddleModule
 from interfaces.mode_aware_module import ModeAwareModule
 from core.prompt_context import PromptContext
+from ui.theme import get_dynamic_styles
+from ui.scaling_manager import get_scaled_font_size
 from typing import Dict, Any, List
 import re
 
@@ -49,71 +51,45 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
         layout.setSpacing(12)
         layout.setContentsMargins(8, 8, 8, 8)
 
+        # 동적 스타일 가져오기
+        dynamic_styles = get_dynamic_styles()
+        
         # 스타일 정의
-        textbox_style = """
-            QTextEdit {
-                background-color: #2B2B2B;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                padding: 8px;
-                color: #FFFFFF;
+        textbox_style = dynamic_styles['compact_textedit']
+        rules_textbox_style = dynamic_styles['compact_textedit']
+        label_style = f"""
+            QLabel {{
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 20px;
-            }
-            QTextEdit:focus {
-                border: 2px solid #1976D2;
-            }
-        """
-        
-        # 주석 강조용 스타일
-        rules_textbox_style = """
-            QTextEdit {
-                background-color: #2B2B2B;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                padding: 8px;
-                color: #FFFFFF;
-                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 20px;
-            }
-            QTextEdit:focus {
-                border: 2px solid #1976D2;
-            }
-        """
-        
-        label_style = """
-            QLabel {
-                font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 19px;
+                font-size: {get_scaled_font_size(19)}px;
                 color: #FFFFFF;
                 font-weight: 500;
-            }
+            }}
         """
 
         # 활성화 체크박스
         self.enable_checkbox = QCheckBox("조건부 프롬프트 활성화")
-        checkbox_style = """
-            QCheckBox {
+        checkbox_style = f"""
+            QCheckBox {{
                 background-color: transparent;
                 spacing: 8px;
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-                font-size: 19px;
+                font-size: {get_scaled_font_size(19)}px;
                 color: #FFFFFF;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
+            }}
+            QCheckBox::indicator {{
+                width: {get_scaled_font_size(18)}px;
+                height: {get_scaled_font_size(18)}px;
                 border: 1px solid #666666;
                 border-radius: 3px;
                 background-color: #2B2B2B;
-            }
-            QCheckBox::indicator:checked {
+            }}
+            QCheckBox::indicator:checked {{
                 background-color: #1976D2;
                 border: 1px solid #1976D2;
-            }
-            QCheckBox::indicator:hover {
+            }}
+            QCheckBox::indicator:hover {{
                 border: 1px solid #42A5F5;
-            }
+            }}
         """
         self.enable_checkbox.setStyleSheet(checkbox_style)
         layout.addWidget(self.enable_checkbox)
@@ -150,14 +126,7 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
 
         # 도움말 프레임
         help_frame = QFrame()
-        help_frame.setStyleSheet("""
-            QFrame {
-                background-color: #2B2B2B;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
+        help_frame.setStyleSheet(dynamic_styles['transparent_frame'])
         help_layout = QVBoxLayout(help_frame)
         help_layout.setSpacing(4)
         
@@ -176,7 +145,7 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
             "• 주석: # 으로 시작하는 줄은 무시됩니다\n"
             "• 예시: (e):prefix+=nsfw^rating:explicit → 등급 e면 두 태그를 prefix에 추가"
         )
-        help_text.setStyleSheet(label_style + "font-size: 16px; color: #B0B0B0;")
+        help_text.setStyleSheet(label_style + f"font-size: {get_scaled_font_size(16)}px; color: #B0B0B0;")
         help_text.setWordWrap(True)
         help_layout.addWidget(help_text)
         
@@ -196,8 +165,8 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
 
         # 테스트 버튼
         test_button = QPushButton("규칙 테스트")
-        test_button.setStyleSheet("""
-            QPushButton {
+        test_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #1976D2;
                 border: none;
                 border-radius: 4px;
@@ -205,14 +174,14 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-weight: 600;
                 color: #FFFFFF;
-                font-size: 19px;
-            }
-            QPushButton:hover {
+                font-size: {get_scaled_font_size(19)}px;
+            }}
+            QPushButton:hover {{
                 background-color: #1565C0;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #0D47A1;
-            }
+            }}
         """)
         test_button.clicked.connect(self.test_rules)
         layout.addWidget(test_button)
@@ -721,7 +690,7 @@ class PromptListModifierModule(BaseMiddleModule, ModeAwareModule):
         if self.log_textedit:
             # HTML 형식으로 로그 변환
             html_logs = []
-            html_logs.append('<div style="font-family: monospace; font-size: 12px;">')
+            html_logs.append(f'<div style="font-family: monospace; font-size: {get_scaled_font_size(12)}px;">')
             
             for log in logs:
                 if "Condition Not Met" in log:

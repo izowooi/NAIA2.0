@@ -1,6 +1,7 @@
 # ui/collapsible.py (수정된 버전)
 
 from ui.theme import DARK_STYLES, DARK_COLORS
+from ui.scaling_manager import get_scaled_font_size
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QToolButton, QMenu, QFrame, QLabel
 )
@@ -34,6 +35,9 @@ class EnhancedCollapsibleBox(QWidget):
         self.toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.toggle_button.setArrowType(Qt.ArrowType.RightArrow)
         self.toggle_button.toggled.connect(self.on_toggled)
+        
+        # 테마에서 이미 동적 스케일링이 적용되므로 추가 스타일링 불필요
+        # DARK_STYLES['collapsible_box']에서 QToolButton 스타일을 사용
         
         # 우클릭 컨텍스트 메뉴 설정 (분리 가능한 경우에만)
         if self.detachable:
@@ -180,6 +184,12 @@ class EnhancedCollapsibleBox(QWidget):
             self.content_area.setWidget(placeholder)
             
             self.toggle_button.setText(f" 🔗 {self.title} (외부 창)")
+            # 분리 상태 색상만 변경 (폰트는 테마에서 관리)
+            self.toggle_button.setStyleSheet(f"""
+                QToolButton {{
+                    color: {DARK_COLORS['accent_blue']};
+                }}
+            """)
             self.toggle_button.setChecked(True)  # 펼쳐진 상태로 고정
             self.toggle_button.setEnabled(False)  # 토글 비활성화
             self.content_area.setMaximumHeight(150)  # 플레이스홀더 높이
@@ -187,6 +197,8 @@ class EnhancedCollapsibleBox(QWidget):
             # 복귀된 상태: 원본 콘텐츠 복원
             print(f"   - 정상 상태로 복원")
             self.toggle_button.setText(f" {self.title}")
+            # 기본 테마 스타일로 복원 (스타일시트 제거)
+            self.toggle_button.setStyleSheet("")
             self.toggle_button.setEnabled(True)  # 토글 활성화
             self.toggle_button.setChecked(False)  # 접힌 상태로 복원
             self.content_area.setMaximumHeight(0)
@@ -215,7 +227,7 @@ class EnhancedCollapsibleBox(QWidget):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_label.setStyleSheet(f"""
             QLabel {{
-                font-size: 24px;
+                font-size: {get_scaled_font_size(24)}px;
                 color: {DARK_COLORS['text_secondary']};
             }}
         """)
@@ -225,7 +237,7 @@ class EnhancedCollapsibleBox(QWidget):
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message_label.setStyleSheet(f"""
             QLabel {{
-                font-size: 12px;
+                font-size: {get_scaled_font_size(12)}px;
                 color: {DARK_COLORS['text_secondary']};
                 font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
             }}
