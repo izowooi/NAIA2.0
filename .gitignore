@@ -140,7 +140,6 @@ tabs/storyteller/save.json
 /tabs/storyteller/default
 /tabs/storyteller/global
 /ui/hooker/filter_dict
-/wildcards
 CLAUDE.md
 app_settings.json
 .claude/settings.local.json
