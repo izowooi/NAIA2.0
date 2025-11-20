@@ -1,0 +1,10 @@
+street, casual clothes, walking, morning, excited expression, shopping district
+shopping mall, casual clothes, window shopping, mannequin, looking at clothes
+fitting room, trying on clothes, sundress, mirror, posing, happy
+fitting room, cocktail dress, twirling, elegant, mirror reflection
+fitting room, evening gown, formal dress, admiring, full body mirror
+clothing store, chosen dress, shopping bag, cashier, purchase complete
+party venue, evening gown, entrance, evening light, anticipation
+ballroom, evening gown, dancing, chandelier, elegant atmosphere, night
+party, evening gown, holding glass, socializing, sparkles, festive mood
+night, evening gown, outside venue, starry sky, satisfied expression
